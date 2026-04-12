@@ -1,0 +1,2 @@
+pair_index,label_a,label_b,clip_a_path,clip_b_path,output_path,duration_sec
+1,people crowd,people sobbing,clips/test_raw/01_people_crowd__JqK8R08i5_M_280_10s.mp4,clips/test_raw/02_people_sobbing__dqtWOGgIuHo_20_10s.mp4,outputs/test_ab/01_people_crowd__people_sobbing_abab_3s.mp4,12.000
