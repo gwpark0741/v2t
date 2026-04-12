@@ -41,7 +41,7 @@ existing `agent_a.py` contract/validator module unchanged.
 - Upload path:
   - local video file -> `client.files.upload(...)`
   - uploaded file waits until `ACTIVE` before generation
-  - uploaded file `uri` is recorded into `AgentARequest.video_uri`
+  - uploaded file `uri` is recorded into `AgentARequest.video_url`
 - Generation path:
   - model: `gemini-2.5-pro`
   - config: `response_mime_type=application/json` and `response_json_schema`
@@ -65,7 +65,7 @@ from v2t_prototype.agent_a_runtime import run_agent_a_runtime
 video_path = Path('../videos/02_playing_table_tennis__same_class_abab_5s.mp4')
 preprocessing = run_preprocessing(video_path)
 result = run_agent_a_runtime(preprocessing=preprocessing, local_video_path=video_path)
-print(result.request.video_uri)
+print(result.request.video_url)
 print(len(result.response.cut_enrichments))
 PY
 ```
@@ -76,7 +76,7 @@ One real live smoke succeeded outside the sandbox after the `ACTIVE`-wait fix.
 
 - input: `../videos/02_playing_table_tennis__same_class_abab_5s.mp4`
 - observed output summary:
-  - uploaded `video_uri` present
+  - uploaded `video_url` present
   - `characters`: `3`
   - `key_objects`: `4`
   - `ambience_sources`: `2`

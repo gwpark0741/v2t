@@ -72,7 +72,7 @@ class PreprocessingResult(BaseModel):
 class AgentARequest(BaseModel):
     """Agent A 호출에 전달되는 최소 입력 계약."""
 
-    video_uri: str = Field(min_length=1)
+    video_url: str = Field(min_length=1)
     video_metadata: VideoMetadata
     cuts: List[Cut]
 

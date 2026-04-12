@@ -12,7 +12,7 @@ from .agent_a import build_agent_a_request, validate_agent_a_response
 from .gemini_client import (
     DEFAULT_AGENT_A_MODEL,
     create_gemini_client,
-    get_uploaded_file_uri,
+    get_uploaded_video_url,
     upload_video_file,
     wait_for_uploaded_file_active,
 )
@@ -92,9 +92,9 @@ def run_agent_a_runtime(
     runtime_client = client or create_gemini_client()
     uploaded_file = upload_video_file(runtime_client, local_video_path)
     uploaded_file = wait_for_uploaded_file_active(runtime_client, uploaded_file)
-    uploaded_file_uri = get_uploaded_file_uri(uploaded_file)
+    uploaded_video_url = get_uploaded_video_url(uploaded_file)
 
-    request = build_agent_a_request(preprocessing=preprocessing, video_uri=uploaded_file_uri)
+    request = build_agent_a_request(preprocessing=preprocessing, video_url=uploaded_video_url)
     prompt = _build_agent_a_prompt(request, prompt_header)
 
     gemini_response = runtime_client.models.generate_content(

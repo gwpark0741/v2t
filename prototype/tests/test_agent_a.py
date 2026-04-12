@@ -20,15 +20,15 @@ def make_preprocessing_result() -> PreprocessingResult:
     )
 
 
-def test_build_agent_a_request_from_preprocessing_and_video_uri():
+def test_build_agent_a_request_from_preprocessing_and_video_url():
     preprocessing = make_preprocessing_result()
 
     request = build_agent_a_request(
         preprocessing=preprocessing,
-        video_uri="gs://bucket/sample.mp4",
+        video_url="gs://bucket/sample.mp4",
     )
 
-    assert request.video_uri == "gs://bucket/sample.mp4"
+    assert request.video_url == "gs://bucket/sample.mp4"
     assert request.video_metadata.video_path == "videos/sample.mp4"
     assert [cut.id for cut in request.cuts] == ["CUT_001", "CUT_002"]
 

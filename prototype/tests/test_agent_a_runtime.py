@@ -123,7 +123,7 @@ def test_run_agent_a_runtime_success_with_structured_output_config(tmp_path: Pat
 
     output = run_agent_a_runtime(preprocessing=preprocessing, local_video_path=video_path, client=client)
 
-    assert output.request.video_uri == "gs://bucket/uploaded_video.mp4"
+    assert output.request.video_url == "gs://bucket/uploaded_video.mp4"
     assert output.response.entity_registry.characters[0].id == "char_001"
     client.files.upload.assert_called_once_with(file=video_path)
     client.files.get.assert_called_once_with(name="files/uploaded_video")

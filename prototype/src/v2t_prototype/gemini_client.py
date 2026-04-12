@@ -73,9 +73,9 @@ def wait_for_uploaded_file_active(
     )
 
 
-def get_uploaded_file_uri(uploaded_file: types.File) -> str:
+def get_uploaded_video_url(uploaded_file: types.File) -> str:
     """
-    Read the uploaded file URI required for downstream request traceability.
+    Read the uploaded video URL required for downstream request traceability.
     """
     uri = uploaded_file.uri
     if not uri:

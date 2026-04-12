@@ -11,7 +11,7 @@ from .agent_a_runtime import (
 from .gemini_client import (
     DEFAULT_AGENT_A_MODEL,
     create_gemini_client,
-    get_uploaded_file_uri,
+    get_uploaded_video_url,
     upload_video_file,
 )
 from .models import (
@@ -76,7 +76,7 @@ __all__ = [
     "DEFAULT_AGENT_A_MODEL",
     "default_surface_compatibility",
     "extract_video_metadata",
-    "get_uploaded_file_uri",
+    "get_uploaded_video_url",
     "run_preprocessing",
     "run_agent_a_runtime",
     "upload_video_file",
