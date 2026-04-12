@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from mimetypes import guess_type
 from typing import Optional
 
 from google import genai
@@ -9,13 +10,7 @@ from google.genai import types
 from pydantic import ValidationError
 
 from .agent_a import build_agent_a_request, validate_agent_a_response
-from .gemini_client import (
-    DEFAULT_AGENT_A_MODEL,
-    create_gemini_client,
-    get_uploaded_video_url,
-    upload_video_file,
-    wait_for_uploaded_file_active,
-)
+from .gemini_client import DEFAULT_AGENT_A_MODEL, create_gemini_client
 from .models import AgentARequest, AgentAResponse, PreprocessingResult
 
 
@@ -87,19 +82,23 @@ def run_agent_a_runtime(
 ) -> AgentARuntimeOutput:
     """
     End-to-end Agent A runtime:
-    upload local video -> call Gemini -> parse JSON -> post-validate.
+    call Gemini with the pre-uploaded video_url -> parse JSON -> post-validate.
     """
     runtime_client = client or create_gemini_client()
-    uploaded_file = upload_video_file(runtime_client, local_video_path)
-    uploaded_file = wait_for_uploaded_file_active(runtime_client, uploaded_file)
-    uploaded_video_url = get_uploaded_video_url(uploaded_file)
+    del local_video_path
 
-    request = build_agent_a_request(preprocessing=preprocessing, video_url=uploaded_video_url)
+    request = build_agent_a_request(preprocessing=preprocessing)
     prompt = _build_agent_a_prompt(request, prompt_header)
+    video_path = Path(preprocessing.video_metadata.video_path)
+    mime_type, _ = guess_type(video_path.name)
+    video_part = types.Part.from_uri(
+        file_uri=request.video_url,
+        mime_type=mime_type or "application/octet-stream",
+    )
 
     gemini_response = runtime_client.models.generate_content(
         model=model,
-        contents=[uploaded_file, prompt],
+        contents=[video_part, prompt],
         config=_build_generation_config(),
     )
 

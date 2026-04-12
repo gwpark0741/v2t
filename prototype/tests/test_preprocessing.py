@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 import cv2
 import numpy as np
 import pytest
+from google.genai import types as genai_types
 
 from v2t_prototype.models import Cut, PreprocessingResult, VideoMetadata
 from v2t_prototype.preprocessing import detect_cuts, run_preprocessing
@@ -55,7 +58,7 @@ def test_preprocessing_result_requires_non_empty_cuts():
         height=1080,
     )
     with pytest.raises(ValueError):
-        PreprocessingResult(video_metadata=metadata, cuts=[])
+        PreprocessingResult(video_metadata=metadata, cuts=[], video_url="gs://bucket/dummy.mp4")
 
 
 def test_detect_cuts_assigns_sequential_cut_ids(tmp_path: Path):
@@ -80,14 +83,22 @@ def test_detect_cuts_assigns_sequential_cut_ids(tmp_path: Path):
 def test_run_preprocessing_returns_metadata_and_cuts(tmp_path: Path):
     video_path = tmp_path / "synthetic_preprocessing.avi"
     fps, frame_count = _write_synthetic_video(video_path)
-
-    result = run_preprocessing(
-        video_path,
-        adaptive_threshold=1.0,
-        min_scene_len=5,
-        window_width=2,
-        min_content_val=5.0,
+    uploaded_file = SimpleNamespace(
+        name="files/preprocessing_video",
+        uri="gs://bucket/preprocessing_video.mp4",
+        state=genai_types.FileState.ACTIVE,
     )
+
+    with patch("v2t_prototype.preprocessing.upload_video_file", return_value=uploaded_file), patch(
+        "v2t_prototype.preprocessing.wait_for_uploaded_file_active", return_value=uploaded_file
+    ):
+        result = run_preprocessing(
+            video_path,
+            adaptive_threshold=1.0,
+            min_scene_len=5,
+            window_width=2,
+            min_content_val=5.0,
+        )
 
     assert result.video_metadata.frame_count == frame_count
     assert result.video_metadata.fps == pytest.approx(fps, abs=0.1)
@@ -96,3 +107,30 @@ def test_run_preprocessing_returns_metadata_and_cuts(tmp_path: Path):
     assert result.cuts
     assert result.cuts[0].start_time == 0.0
     assert result.cuts[-1].end_time == pytest.approx(result.video_metadata.duration_seconds, abs=0.1)
+
+
+def test_run_preprocessing_uploads_video_and_returns_video_url(tmp_path: Path):
+    video_path = tmp_path / "synthetic_preprocessing.avi"
+    _write_synthetic_video(video_path)
+    client = Mock()
+    uploaded_file = SimpleNamespace(
+        name="files/uploaded_video",
+        uri="gs://bucket/uploaded_video.mp4",
+        state=genai_types.FileState.ACTIVE,
+    )
+
+    with patch("v2t_prototype.preprocessing.upload_video_file", return_value=uploaded_file) as upload_mock, patch(
+        "v2t_prototype.preprocessing.wait_for_uploaded_file_active", return_value=uploaded_file
+    ) as wait_mock:
+        result = run_preprocessing(
+            video_path,
+            adaptive_threshold=1.0,
+            min_scene_len=5,
+            window_width=2,
+            min_content_val=5.0,
+            client=client,
+        )
+
+    upload_mock.assert_called_once_with(client, video_path)
+    wait_mock.assert_called_once_with(client, uploaded_file)
+    assert result.video_url == "gs://bucket/uploaded_video.mp4"

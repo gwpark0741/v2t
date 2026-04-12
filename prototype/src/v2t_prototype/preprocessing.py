@@ -1,11 +1,19 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Optional
 
 import cv2
+from google import genai
 from scenedetect import SceneManager, open_video
 from scenedetect.detectors import AdaptiveDetector
 
+from .gemini_client import (
+    create_gemini_client,
+    get_uploaded_video_url,
+    upload_video_file,
+    wait_for_uploaded_file_active,
+)
 from .models import Cut, PreprocessingResult, VideoMetadata
 
 
@@ -132,6 +140,7 @@ def run_preprocessing(
     min_scene_len: int = 30,
     window_width: int = 2,
     min_content_val: float = 15.0,
+    client: Optional[genai.Client] = None,
 ) -> PreprocessingResult:
     """전처리 엔트리포인트입니다.
 
@@ -139,6 +148,7 @@ def run_preprocessing(
     1) 영상 물리 메타데이터 추출
     2) AdaptiveDetector 기반 컷 경계 확정
     3) 두 결과를 `PreprocessingResult`로 묶어 반환
+    4) Gemini Files API에 업로드하고 `video_url`을 포함
     """
     metadata = extract_video_metadata(video_path)
     cuts = _detect_cuts_with_metadata(
@@ -149,4 +159,12 @@ def run_preprocessing(
         window_width=window_width,
         min_content_val=min_content_val,
     )
-    return PreprocessingResult(video_metadata=metadata, cuts=cuts)
+    runtime_client = client or create_gemini_client()
+    uploaded_file = upload_video_file(runtime_client, video_path)
+    uploaded_file = wait_for_uploaded_file_active(runtime_client, uploaded_file)
+    video_url = get_uploaded_video_url(uploaded_file)
+    return PreprocessingResult(
+        video_metadata=metadata,
+        cuts=cuts,
+        video_url=video_url,
+    )

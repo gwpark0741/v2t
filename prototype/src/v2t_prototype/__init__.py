@@ -40,6 +40,7 @@ from .models import (
 from .merge_rules import canonical_should_merge, default_surface_compatibility
 from .preprocessing import detect_cuts, extract_video_metadata, run_preprocessing
 from .preprocessing_report import build_preprocessing_report_html, write_preprocessing_report
+from .agent_a_report import build_agent_a_report_html, write_agent_a_report
 from .synthesizer import synthesize_tracks
 
 __all__ = [
@@ -82,5 +83,7 @@ __all__ = [
     "upload_video_file",
     "build_preprocessing_report_html",
     "write_preprocessing_report",
+    "build_agent_a_report_html",
+    "write_agent_a_report",
     "synthesize_tracks",
 ]

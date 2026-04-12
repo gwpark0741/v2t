@@ -12,6 +12,7 @@ def make_preprocessing_result() -> PreprocessingResult:
                 "width": 1280,
                 "height": 720,
             },
+            "video_url": "gs://bucket/sample.mp4",
             "cuts": [
                 {"id": "CUT_001", "start_time": 0.0, "end_time": 4.0},
                 {"id": "CUT_002", "start_time": 4.0, "end_time": 10.0},
@@ -25,7 +26,6 @@ def test_build_agent_a_request_from_preprocessing_and_video_url():
 
     request = build_agent_a_request(
         preprocessing=preprocessing,
-        video_url="gs://bucket/sample.mp4",
     )
 
     assert request.video_url == "gs://bucket/sample.mp4"

@@ -5,12 +5,12 @@ from typing import List
 from .models import AgentARequest, AgentAResponse, PreprocessingResult
 
 
-def build_agent_a_request(preprocessing: PreprocessingResult, video_url: str) -> AgentARequest:
+def build_agent_a_request(preprocessing: PreprocessingResult) -> AgentARequest:
     """
     Build the explicit Agent A request contract from preprocessing output.
     """
     return AgentARequest(
-        video_url=video_url,
+        video_url=preprocessing.video_url,
         video_metadata=preprocessing.video_metadata,
         cuts=preprocessing.cuts,
     )

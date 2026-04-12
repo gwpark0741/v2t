@@ -59,6 +59,7 @@ class PreprocessingResult(BaseModel):
 
     video_metadata: VideoMetadata
     cuts: List[Cut]
+    video_url: str = Field(min_length=1)
 
     model_config = ConfigDict(extra="forbid")
 

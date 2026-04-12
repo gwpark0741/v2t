@@ -29,6 +29,7 @@ def make_preprocessing_result() -> PreprocessingResult:
                 "width": 1280,
                 "height": 720,
             },
+            "video_url": "gs://bucket/sample.mp4",
             "cuts": [
                 {"id": "CUT_001", "start_time": 0.0, "end_time": 4.0},
                 {"id": "CUT_002", "start_time": 4.0, "end_time": 10.0},
@@ -77,16 +78,18 @@ def _valid_agent_a_response_json() -> str:
 
 def _make_mock_client(response_text: str) -> Mock:
     client = Mock()
-    client.files.upload.return_value = SimpleNamespace(
+    files_mock = Mock()
+    files_mock.upload.return_value = SimpleNamespace(
         name="files/uploaded_video",
         uri="gs://bucket/uploaded_video.mp4",
         state=types.FileState.PROCESSING,
     )
-    client.files.get.return_value = SimpleNamespace(
+    files_mock.get.return_value = SimpleNamespace(
         name="files/uploaded_video",
         uri="gs://bucket/uploaded_video.mp4",
         state=types.FileState.ACTIVE,
     )
+    client.files = files_mock
     client.models.generate_content.return_value = SimpleNamespace(text=response_text)
     return client
 
@@ -121,12 +124,18 @@ def test_run_agent_a_runtime_success_with_structured_output_config(tmp_path: Pat
     _write_dummy_video_file(video_path)
     client = _make_mock_client(_valid_agent_a_response_json())
 
-    output = run_agent_a_runtime(preprocessing=preprocessing, local_video_path=video_path, client=client)
+    with patch("v2t_prototype.agent_a_runtime.types.Part.from_uri") as part_from_uri:
+        part_from_uri.return_value = SimpleNamespace(content="video part")
+        output = run_agent_a_runtime(preprocessing=preprocessing, local_video_path=video_path, client=client)
 
-    assert output.request.video_url == "gs://bucket/uploaded_video.mp4"
+    assert output.request.video_url == "gs://bucket/sample.mp4"
     assert output.response.entity_registry.characters[0].id == "char_001"
-    client.files.upload.assert_called_once_with(file=video_path)
-    client.files.get.assert_called_once_with(name="files/uploaded_video")
+    client.files.upload.assert_not_called()
+    client.files.get.assert_not_called()
+    part_from_uri.assert_called_once_with(
+        file_uri=preprocessing.video_url,
+        mime_type="video/mp4",
+    )
     generate_kwargs = client.models.generate_content.call_args.kwargs
     assert generate_kwargs["model"] == "gemini-2.5-pro"
     assert generate_kwargs["config"].response_mime_type == "application/json"
@@ -182,21 +191,6 @@ def test_run_agent_a_runtime_raises_on_post_validation_failure(tmp_path: Path):
     assert "missing cut enrichment for CUT_001" in exc_info.value.issues
     assert "missing cut enrichment for CUT_002" in exc_info.value.issues
 
-
-def test_run_agent_a_runtime_does_not_call_generate_before_file_active(tmp_path: Path):
-    preprocessing = make_preprocessing_result()
-    video_path = tmp_path / "input.mp4"
-    _write_dummy_video_file(video_path)
-    client = _make_mock_client(_valid_agent_a_response_json())
-
-    with patch(
-        "v2t_prototype.agent_a_runtime.wait_for_uploaded_file_active",
-        side_effect=TimeoutError("file not active in time"),
-    ):
-        with pytest.raises(TimeoutError):
-            run_agent_a_runtime(preprocessing=preprocessing, local_video_path=video_path, client=client)
-
-    client.models.generate_content.assert_not_called()
 
 
 def test_wait_for_uploaded_file_active_returns_immediately_for_active_file():
