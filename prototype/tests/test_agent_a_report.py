@@ -83,7 +83,13 @@ def _make_sample_runtime_output(preprocessing: PreprocessingResult) -> AgentARun
                 camera_angle="wide",
                 transition_type="cut",
                 camera_notes="n/a",
-            )
+            ),
+            CutEnrichment(
+                cut_id="CUT_002",
+                camera_angle="close",
+                transition_type="cut",
+                camera_notes="follow-up",
+            ),
         ],
     )
     return AgentARuntimeOutput(request=request, response=response, raw_response_text="{}")
@@ -97,11 +103,21 @@ def test_build_agent_a_report_html_includes_sections():
     assert "Agent Report" in html
     assert "video-player" in html
     assert "CUT_001" in html
+    assert "Input Video Summary" in html
+    assert "Upload Result" in html
+    assert "Preprocessing Output" in html
+    assert "Agent A Request Summary" in html
+    assert "Agent A Request JSON" in html
+    assert "Agent A Response Summary" in html
+    assert "Raw Gemini JSON Text" in html
+    assert "video_mime_type" in html
+    assert "gs://test-bucket/video.mp4" in html
     assert "Characters" in html
     assert "Key Objects" in html
     assert "Ambience Sources" in html
     assert "Validation Summary" in html
-    assert "Video URL" in html
+    assert "PASS" in html
+    assert "No validation issues detected." in html
 
 
 def test_write_agent_a_report_creates_file(tmp_path: Path):
@@ -115,3 +131,5 @@ def test_write_agent_a_report_creates_file(tmp_path: Path):
     content = output_file.read_text()
     assert "<h1>Report</h1>" in content
     assert "CUT_002" in content
+    assert "Agent A Request JSON" in content
+    assert "Raw Gemini JSON Text" in content

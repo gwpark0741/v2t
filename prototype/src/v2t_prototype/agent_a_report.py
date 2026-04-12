@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from html import escape
 from pathlib import Path
 from typing import Iterable
@@ -74,9 +75,20 @@ def _render_cut_enrichments(enrichments: Iterable, force_empty: bool = False) ->
 
 def _render_validation_summary(issues: list[str]) -> str:
     if not issues:
-        return "<p>No validation issues detected.</p>"
+        return "<p>PASS - No validation issues detected.</p>"
     items = "".join(f"<li>{escape(issue)}</li>" for issue in issues)
-    return "<ul>" + items + "</ul>"
+    return "<p>FAIL - Validation issues detected.</p><ul>" + items + "</ul>"
+
+
+def _render_json_block(raw_text: str) -> str:
+    content = raw_text
+    try:
+        parsed = json.loads(raw_text)
+    except json.JSONDecodeError:
+        pass
+    else:
+        content = json.dumps(parsed, indent=2, ensure_ascii=False)
+    return f"<pre>{escape(content)}</pre>"
 
 
 def build_agent_a_report_html(
@@ -91,11 +103,12 @@ def build_agent_a_report_html(
     request = runtime_output.request
     response = runtime_output.response
     video_src_final = _default_video_src(preprocessing, video_src=video_src)
+    request_json = request.model_dump_json(indent=2)
 
     timeline_segments: list[str] = []
     cut_rows: list[str] = []
     duration = metadata.duration_seconds
-    for cut in request.cuts:
+    for cut in preprocessing.cuts:
         cut_duration = cut.end_time - cut.start_time
         start_percent = 0.0 if duration <= 0 else (cut.start_time / duration) * 100.0
         width_percent = 0.0 if duration <= 0 else (cut_duration / duration) * 100.0
@@ -116,6 +129,12 @@ def build_agent_a_report_html(
         )
 
     issues = validate_agent_a_response(preprocessing, response)
+    issue_count = len(issues)
+    total_entities = (
+        len(response.entity_registry.characters)
+        + len(response.entity_registry.key_objects)
+        + len(response.entity_registry.ambience_sources)
+    )
 
     html = f"""<!DOCTYPE html>
 <html lang=\"en\">
@@ -213,6 +232,30 @@ def build_agent_a_report_html(
       color: var(--muted);
       font-size: 13px;
     }}
+    pre {{
+      margin: 0;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #f2f4fa;
+      padding: 10px;
+      font-size: 12px;
+      line-height: 1.45;
+      overflow-x: auto;
+      white-space: pre-wrap;
+    }}
+    .status-pill {{
+      display: inline-block;
+      border-radius: 999px;
+      padding: 4px 10px;
+      font-size: 12px;
+      font-weight: 600;
+      background: #e8f5ec;
+      color: #14532d;
+    }}
+    .status-pill.fail {{
+      background: #fde8e8;
+      color: #9b1c1c;
+    }}
   </style>
 </head>
 <body>
@@ -224,21 +267,35 @@ def build_agent_a_report_html(
       </video>
     </div>
     <div class=\"card\">
-      <h2>Video & Request Summary</h2>
+      <h2>Input Video Summary</h2>
       <div class=\"kv\">
-        <div class=\"label\">Video URL</div><div>{escape(request.video_url)}</div>
-        <div class=\"label\">Metadata Path</div><div>{escape(metadata.video_path)}</div>
+        <div class=\"label\">Input Path</div><div>{escape(metadata.video_path)}</div>
+        <div class=\"label\">Video Player Source</div><div>{escape(video_src_final)}</div>
         <div class=\"label\">Duration</div><div>{_format_seconds(metadata.duration_seconds)}</div>
+        <div class=\"label\">FPS</div><div>{metadata.fps}</div>
         <div class=\"label\">Resolution</div><div>{metadata.width} x {metadata.height}</div>
-        <div class=\"label\">Cut Count</div><div>{len(request.cuts)}</div>
       </div>
     </div>
     <div class=\"card\">
-      <h2>Timeline</h2>
+      <h2>Upload Result</h2>
+      <div class=\"kv\">
+        <div class=\"label\">video_url</div><div>{escape(preprocessing.video_url)}</div>
+        <div class=\"label\">video_mime_type</div><div>{escape(preprocessing.video_mime_type)}</div>
+      </div>
+    </div>
+    <div class=\"card\">
+      <h2>Preprocessing Output</h2>
+      <div class=\"kv\">
+        <div class=\"label\">Cut Count</div><div>{len(preprocessing.cuts)}</div>
+        <div class=\"label\">Frame Count</div><div>{metadata.frame_count}</div>
+      </div>
+    </div>
+    <div class=\"card\">
+      <h2>Preprocessing Timeline</h2>
       <div class=\"timeline-track\">{''.join(timeline_segments)}</div>
     </div>
     <div class=\"card\">
-      <h2>Cuts</h2>
+      <h2>Preprocessing Cuts</h2>
       <table>
         <thead>
           <tr><th>ID</th><th>Start</th><th>End</th><th>Duration</th></tr>
@@ -249,14 +306,45 @@ def build_agent_a_report_html(
       </table>
     </div>
     <div class=\"card\">
-      <h2>Entity Registry</h2>
+      <h2>Agent A Request Summary</h2>
+      <div class=\"kv\">
+        <div class=\"label\">video_url</div><div>{escape(request.video_url)}</div>
+        <div class=\"label\">video_mime_type</div><div>{escape(request.video_mime_type)}</div>
+        <div class=\"label\">cuts in request</div><div>{len(request.cuts)}</div>
+      </div>
+    </div>
+    <div class=\"card\">
+      <h2>Agent A Request JSON</h2>
+      {_render_json_block(request_json)}
+    </div>
+    <div class=\"card\">
+      <h2>Agent A Response Summary</h2>
+      <div class=\"kv\">
+        <div class=\"label\">characters</div><div>{len(response.entity_registry.characters)}</div>
+        <div class=\"label\">key_objects</div><div>{len(response.entity_registry.key_objects)}</div>
+        <div class=\"label\">ambience_sources</div><div>{len(response.entity_registry.ambience_sources)}</div>
+        <div class=\"label\">cut_enrichments</div><div>{len(response.cut_enrichments)}</div>
+        <div class=\"label\">total_entities</div><div>{total_entities}</div>
+      </div>
+    </div>
+    <div class=\"card\">
+      <h2>Agent A Entity Registry</h2>
       {_render_entity_list('Characters', response.entity_registry.characters)}
       {_render_entity_list('Key Objects', response.entity_registry.key_objects)}
       {_render_entity_list('Ambience Sources', response.entity_registry.ambience_sources)}
     </div>
     {_render_cut_enrichments(response.cut_enrichments, force_empty=True)}
     <div class=\"card\">
+      <h2>Raw Gemini JSON Text</h2>
+      {_render_json_block(runtime_output.raw_response_text)}
+    </div>
+    <div class=\"card\">
       <h2>Validation Summary</h2>
+      <p>
+        <span class=\"status-pill{' fail' if issue_count else ''}\">
+          {'PASS' if issue_count == 0 else 'FAIL'}
+        </span>
+      </p>
       {_render_validation_summary(issues)}
     </div>
   </div>

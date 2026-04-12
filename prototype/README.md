@@ -20,7 +20,7 @@ Features implemented in this phase:
 - Agent A HTML reporting:
   - `build_agent_a_report_html(...)`
   - `write_agent_a_report(...)`
-  - video player plus metadata, registry, cut enrichments, and validation summary
+  - shows execution intermediates: input summary, upload result, preprocessing, request JSON, response summary, raw Gemini JSON, validation
 - Agent A contract module:
   - `AgentARequest`, `EntityRegistry`, `AgentAResponse`
   - `build_agent_a_request(...)`
