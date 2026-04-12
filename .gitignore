@@ -22,12 +22,9 @@ prototype/.pytest_cache/
 prototype/reports/
 
 # local planning / experiment materials kept out of GitHub
-agent_rules/
-context.md/
+.vscode/
 experiments/
 manifests/
-pipeline_compressed_context.md
-pipeline_context_v4.md
 scripts/
 
 # large local assets / generated outputs
