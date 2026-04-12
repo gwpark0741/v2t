@@ -68,3 +68,111 @@ This log covers the first approved prototype slice for `pipeline_context_v4.md`.
 - Final Validation warnings generation
 - preprocessing/cut config helpers
 - Agent A / Agent B interface contracts
+
+## Preprocessing MVP Slice
+
+### Scope
+- Added the minimum preprocessing contract for the v4 pipeline inside `prototype`.
+- This slice covers metadata extraction and authoritative cut generation only.
+- It does not include ffmpeg clip generation, Gemini upload, Agent A/B orchestration, or final warnings.
+
+### Purpose / Input / Output
+
+### `models.py`
+- Added `VideoMetadata`, `Cut`, and `PreprocessingResult`.
+- Purpose: define the validated preprocessing output contract before any LLM stage runs.
+- Inputs: extracted numeric video metadata and detector-derived cut boundaries.
+- Outputs: typed models reused by preprocessing code and future orchestration layers.
+
+### `preprocessing.py`
+- Purpose: provide a single preprocessing entry point that reads video metadata and generates `Cut[]` with `AdaptiveDetector`.
+- Inputs:
+  - `video_path: Path`
+  - optional detector params:
+    - `adaptive_threshold=4.0`
+    - `min_scene_len=30`
+    - `window_width=2`
+    - `min_content_val=15.0`
+- Outputs:
+  - `extract_video_metadata(...) -> VideoMetadata`
+  - `detect_cuts(...) -> list[Cut]`
+  - `run_preprocessing(...) -> PreprocessingResult`
+- Dependency points:
+  - `scenedetect[opencv]`
+  - `models.py`
+  - `tests/test_preprocessing.py`
+- Additional notes:
+  - authoritative cut boundaries come from `AdaptiveDetector`
+  - cut IDs are generated deterministically as `CUT_001`, `CUT_002`, ...
+  - timestamp grid snapping is not used
+  - this MVP uses OpenCV-backed metadata extraction because `ffprobe` is not available in the current environment
+
+### Environment Setup
+- `uv add "scenedetect[opencv]>=0.6.7.1"`
+- `uv sync`
+
+### Review Status
+- Reviewer approval obtained for the preprocessing MVP slice.
+- Approved behavior:
+  - minimal preprocessing-only scope
+  - explicit I/O contract for metadata and cuts
+  - v4 default `AdaptiveDetector` params
+  - isolated preprocessing module export through package `__init__`
+
+### Test Status
+- Automated tests passed: `20/20`
+- Preprocessing-specific tests passed: `4/4`
+- Smoke check passed:
+  - `run_preprocessing('../videos/02_playing_table_tennis__same_class_abab_5s.mp4')`
+  - returned valid metadata plus `6` cuts
+- Status: passed
+
+### Updated Next Recommended Slice
+- Segment Prep MVP (`ffmpeg` clip generation contract)
+- Agent A input/output contract
+- Agent B input/output contract
+
+## Preprocessing HTML Report Slice
+
+### Scope
+- Added a minimal static HTML report generator for the preprocessing result only.
+- This slice is limited to rendering `PreprocessingResult` into an easy-to-read file for manual inspection of cut segmentation.
+- No thumbnails, JS, ffmpeg assets, or batch dashboards were added.
+
+### Purpose / Input / Output
+
+### `preprocessing_report.py`
+- Purpose: convert one `PreprocessingResult` into a standalone HTML report.
+- Inputs:
+  - `result: PreprocessingResult`
+  - optional `title: str | None`
+  - optional `output_path: Path` for file writing
+- Outputs:
+  - `build_preprocessing_report_html(...) -> str`
+  - `write_preprocessing_report(...) -> Path`
+- Dependency points:
+  - `models.py`
+  - `preprocessing.py`
+  - `tests/test_preprocessing_report.py`
+- Additional notes:
+  - report content is derived solely from `PreprocessingResult`
+  - includes video metadata, cut count, a simple horizontal timeline, and a cut table
+  - generated smoke-test artifact:
+    - `reports/preprocessing_02_playing_table_tennis.html`
+
+### Review Status
+- Reviewer initially blocked one scope-creep issue:
+  - detector defaults were being inferred from `run_preprocessing` instead of relying only on `PreprocessingResult`
+- Developer removed that helper/card and the reviewer then approved.
+
+### Test Status
+- Automated tests passed: `tests/test_preprocessing_report.py -> 2/2`
+- Demo artifact generation passed:
+  - `run_preprocessing('../videos/02_playing_table_tennis__same_class_abab_5s.mp4')`
+  - `write_preprocessing_report(...)`
+  - generated `reports/preprocessing_02_playing_table_tennis.html`
+
+### Updated Next Recommended Slice
+- Segment Prep MVP (`ffmpeg` clip generation contract)
+- Agent A input/output contract
+- Agent B input/output contract

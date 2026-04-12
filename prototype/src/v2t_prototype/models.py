@@ -25,6 +25,50 @@ class Interval(BaseModel):
         return self
 
 
+class VideoMetadata(BaseModel):
+    """전처리 단계에서 영상의 기본 물리 정보를 보관합니다."""
+
+    video_path: str
+    fps: float = Field(gt=0.0)
+    frame_count: int = Field(gt=0)
+    duration_seconds: float = Field(gt=0.0)
+    width: int = Field(gt=0)
+    height: int = Field(gt=0)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class Cut(BaseModel):
+    """PySceneDetect 결과를 기반으로 확정된 컷 경계를 표현합니다."""
+
+    id: str
+    start_time: float = Field(ge=0.0)
+    end_time: float = Field(ge=0.0)
+
+    model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="after")
+    def check_order(self) -> "Cut":
+        if self.end_time <= self.start_time:
+            raise ValueError("cut end_time must be > start_time")
+        return self
+
+
+class PreprocessingResult(BaseModel):
+    """전처리 출력의 단일 계약: 영상 메타데이터 + authoritative cut 목록."""
+
+    video_metadata: VideoMetadata
+    cuts: List[Cut]
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("cuts")
+    def non_empty_cuts(cls, value: List[Cut]) -> List[Cut]:
+        if not value:
+            raise ValueError("PreprocessingResult must contain at least one cut")
+        return value
+
+
 class OnsetEvent(BaseModel):
     type: Literal["onset"]
     timestamp: float = Field(ge=0.0)

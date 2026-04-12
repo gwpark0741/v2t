@@ -64,3 +64,42 @@
 
 ### Reviewer decision
 - APPROVED
+
+## Preprocessing MVP Cycle
+
+### Developer submission summary
+- Added the minimum preprocessing contract inside `prototype`: `VideoMetadata`, `Cut`, `PreprocessingResult`, plus `extract_video_metadata(...)`, `detect_cuts(...)`, and `run_preprocessing(...)`.
+- Added `scenedetect[opencv]` as the minimum dependency needed to execute `AdaptiveDetector`.
+- Added Korean comments/docstrings in `preprocessing.py` and focused preprocessing tests with a synthetic video fixture.
+
+### Reviewer re-check
+- Confirmed the implementation stays inside the declared preprocessing MVP scope.
+- Confirmed the output contract is explicit and uses validated Pydantic models.
+- Confirmed `AdaptiveDetector` default parameters match the v4 spec.
+- Confirmed no out-of-scope features such as segment generation or upload were added.
+- Confirmed preprocessing responsibility is isolated to a dedicated module and cleanly exported.
+
+### Reviewer decision
+- APPROVED
+
+### Residual non-blocking caveat
+- This MVP extracts metadata through OpenCV-backed video access because `ffprobe` is not available in the current environment.
+
+## Preprocessing HTML Report Cycle
+
+### Developer submission summary
+- Added `preprocessing_report.py` with helpers to render one `PreprocessingResult` into a static HTML string/file.
+- Added report exports in package `__init__.py`.
+- Added focused tests for HTML content and file writing.
+
+### Reviewer findings
+1. The initial version pulled detector defaults from `run_preprocessing` and rendered an extra detector-defaults card.
+2. That behavior exceeded the declared scope because the report should be derived only from `PreprocessingResult`.
+
+### Developer revision summary
+- Removed the detector-default helper.
+- Removed the detector-defaults card from the HTML.
+- Updated tests so they assert only the `PreprocessingResult`-derived fields.
+
+### Reviewer decision
+- APPROVED
