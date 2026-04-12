@@ -69,6 +69,22 @@ class PreprocessingResult(BaseModel):
         return value
 
 
+class AgentARequest(BaseModel):
+    """Agent A 호출에 전달되는 최소 입력 계약."""
+
+    video_uri: str = Field(min_length=1)
+    video_metadata: VideoMetadata
+    cuts: List[Cut]
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("cuts")
+    def non_empty_cuts(cls, value: List[Cut]) -> List[Cut]:
+        if not value:
+            raise ValueError("AgentARequest must contain at least one cut")
+        return value
+
+
 class OnsetEvent(BaseModel):
     type: Literal["onset"]
     timestamp: float = Field(ge=0.0)
@@ -127,6 +143,23 @@ class CutEnrichment(BaseModel):
     camera_angle: str
     transition_type: str
     camera_notes: str
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class EntityRegistry(BaseModel):
+    characters: List[Character] = Field(default_factory=list)
+    key_objects: List[KeyObject] = Field(default_factory=list)
+    ambience_sources: List[AmbienceSource] = Field(default_factory=list)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class AgentAResponse(BaseModel):
+    """Agent A 출력 계약: 엔티티 레지스트리 + cut enrichment 목록."""
+
+    entity_registry: EntityRegistry
+    cut_enrichments: List[CutEnrichment]
 
     model_config = ConfigDict(extra="forbid")
 

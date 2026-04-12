@@ -5,6 +5,7 @@ description = "Phase 0 schema and validation foundation for the v4 video-to-soun
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "google-genai>=1.0,<2",
     "pydantic>=2.6,<3",
     "pytest>=8.0",
     "scenedetect[opencv]>=0.6.7.1",

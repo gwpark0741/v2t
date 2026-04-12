@@ -1,0 +1,123 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Optional
+
+from google import genai
+from google.genai import types
+from pydantic import ValidationError
+
+from .agent_a import build_agent_a_request, validate_agent_a_response
+from .gemini_client import (
+    DEFAULT_AGENT_A_MODEL,
+    create_gemini_client,
+    get_uploaded_file_uri,
+    upload_video_file,
+    wait_for_uploaded_file_active,
+)
+from .models import AgentARequest, AgentAResponse, PreprocessingResult
+
+
+DEFAULT_AGENT_A_SYSTEM_PROMPT = (
+    "You are Agent A in a video-to-sound metadata pipeline.\n"
+    "Use the uploaded full video as the primary source of truth.\n"
+    "Do not change cut boundaries.\n"
+    "Return only a JSON object that matches the provided schema."
+)
+
+
+class AgentARuntimeError(RuntimeError):
+    """Base runtime error for Agent A Gemini execution."""
+
+
+class AgentAResponseParseError(AgentARuntimeError):
+    """Gemini output could not be parsed into AgentAResponse."""
+
+
+class AgentAPostValidationError(AgentARuntimeError):
+    """Gemini output was parseable but violated linkage rules."""
+
+    def __init__(self, issues: list[str]):
+        self.issues = issues
+        super().__init__("Agent A response failed post-validation: " + "; ".join(issues))
+
+
+@dataclass(frozen=True)
+class AgentARuntimeOutput:
+    request: AgentARequest
+    response: AgentAResponse
+    raw_response_text: str
+
+
+def _build_agent_a_prompt(request: AgentARequest, prompt_header: str) -> str:
+    cut_lines = "\n".join(
+        f"- {cut.id}: {cut.start_time:.3f}s -> {cut.end_time:.3f}s"
+        for cut in request.cuts
+    )
+    return (
+        f"{prompt_header}\n\n"
+        "Task:\n"
+        "1) Build entity_registry with characters, key_objects, ambience_sources.\n"
+        "2) Provide exactly one cut_enrichment per cut_id from the authoritative list.\n"
+        "3) Keep all IDs deterministic and prefixed as char_/obj_/amb_.\n\n"
+        "Authoritative video metadata:\n"
+        f"- fps: {request.video_metadata.fps}\n"
+        f"- duration_seconds: {request.video_metadata.duration_seconds}\n"
+        f"- resolution: {request.video_metadata.width}x{request.video_metadata.height}\n\n"
+        "Authoritative cuts:\n"
+        f"{cut_lines}\n"
+    )
+
+
+def _build_generation_config() -> types.GenerateContentConfig:
+    return types.GenerateContentConfig(
+        response_mime_type="application/json",
+        response_json_schema=AgentAResponse.model_json_schema(),
+    )
+
+
+def run_agent_a_runtime(
+    preprocessing: PreprocessingResult,
+    local_video_path: Path | str,
+    *,
+    client: Optional[genai.Client] = None,
+    model: str = DEFAULT_AGENT_A_MODEL,
+    prompt_header: str = DEFAULT_AGENT_A_SYSTEM_PROMPT,
+) -> AgentARuntimeOutput:
+    """
+    End-to-end Agent A runtime:
+    upload local video -> call Gemini -> parse JSON -> post-validate.
+    """
+    runtime_client = client or create_gemini_client()
+    uploaded_file = upload_video_file(runtime_client, local_video_path)
+    uploaded_file = wait_for_uploaded_file_active(runtime_client, uploaded_file)
+    uploaded_file_uri = get_uploaded_file_uri(uploaded_file)
+
+    request = build_agent_a_request(preprocessing=preprocessing, video_uri=uploaded_file_uri)
+    prompt = _build_agent_a_prompt(request, prompt_header)
+
+    gemini_response = runtime_client.models.generate_content(
+        model=model,
+        contents=[uploaded_file, prompt],
+        config=_build_generation_config(),
+    )
+
+    raw_response_text = gemini_response.text
+    if not raw_response_text:
+        raise AgentAResponseParseError("Gemini response did not include response.text")
+
+    try:
+        parsed_response = AgentAResponse.model_validate_json(raw_response_text)
+    except ValidationError as exc:
+        raise AgentAResponseParseError("Failed to parse Agent A response JSON") from exc
+
+    issues = validate_agent_a_response(preprocessing, parsed_response)
+    if issues:
+        raise AgentAPostValidationError(issues)
+
+    return AgentARuntimeOutput(
+        request=request,
+        response=parsed_response,
+        raw_response_text=raw_response_text,
+    )
