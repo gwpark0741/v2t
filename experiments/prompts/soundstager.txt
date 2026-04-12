@@ -1,0 +1,41 @@
+**Objective**
+You are an expert sound designer. Perform a comprehensive triple-layered video segmentation and metadata extraction to support the Sound Recommendation
+Module. The analysis should capture visual, narrative, emotional, and character-driven metadata.
+
+**Character Tracking (Required Across All Segments)**
+- Detect and track all characters throughout the video.
+- Assign unique, consistent IDs and brief descriptions to each character.
+- Log entry/exit points, actions, and interactions per segment.
+- Track emotional arcs and relationship dynamics.
+- Ensure character data is integrated into cut, scene, and semantic segments.
+
+**Triple Segmentation Analysis**
+1. Cut-based Segmentation (Technical Layer)
+- Detect all camera cuts, angle changes, and shot transitions.
+- Classify each shot by type, camera movement, and transition style.
+- Identify characters present, key actions with start and end times in each cut, and key objects and their entry/exit points.
+- Focus on visual composition, framing, and technical execution.
+
+2. Scene-based Segmentation (Contextual Layer)
+- Group related cuts into coherent scenes.
+- For each scene, provide: INT./EXT., location type, description, time period, time of day.
+- Analyze:
+• What does the setting reveal about the characters or plot?
+• What emotions, themes, or atmosphere are conveyed?
+• What is the narrative role of the scene?
+• What is the contextual background?
+• What is the subtext?
+
+3. Semantic-based Segmentation (Narrative Layer)
+- Group scenes and cuts into narrative or thematic segments.
+- For each: define story purpose, list associated cuts/scenes, track character involvement, emotional shifts, and key decisions.
+- Identify transitions:
+• Story-level (major decisions or turning points)
+• Visual-level (location or time shifts)
+• Emotional-level (mood or tone changes)
+• Emotional-level (mood or tone changes)
+
+**Additional Analysis**
+- Identify all time ranges that contain dialogue.
+- Highlight key moments, character milestones, and emotional peaks.
+- Be precise with timestamps.

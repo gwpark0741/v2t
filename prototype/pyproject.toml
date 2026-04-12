@@ -1,0 +1,19 @@
+[project]
+name = "v2t-prototype"
+version = "0.1.0"
+description = "Phase 0 schema and validation foundation for the v4 video-to-sound prototype."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic>=2.6,<3",
+    "pytest>=8.0",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8.0",
+]
+
+[build-system]
+requires = ["hatchling>=1.11.0"]
+build-backend = "hatchling.build"

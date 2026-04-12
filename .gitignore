@@ -1,0 +1,30 @@
+# macOS / editor
+.DS_Store
+
+# local agent/runtime state
+.codex
+.omc/
+.pycache/
+.uv-cache/
+.venv/
+.env
+.env.*
+*.env
+
+# python cache
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# local prototype runtime artifacts
+prototype/.venv/
+prototype/.pytest_cache/
+
+# large local assets / generated outputs
+videos/
+outputs/
+data/
+experiments/results/
+
+# optional local vendor cache
+.vendor/
