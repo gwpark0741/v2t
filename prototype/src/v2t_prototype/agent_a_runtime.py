@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Optional
 
 from google import genai
@@ -73,7 +72,6 @@ def _build_generation_config() -> types.GenerateContentConfig:
 
 def run_agent_a_runtime(
     preprocessing: PreprocessingResult,
-    local_video_path: Path | str,
     *,
     client: Optional[genai.Client] = None,
     model: str = DEFAULT_AGENT_A_MODEL,
@@ -84,7 +82,6 @@ def run_agent_a_runtime(
     call Gemini with the pre-uploaded video_url -> parse JSON -> post-validate.
     """
     runtime_client = client or create_gemini_client()
-    del local_video_path
 
     request = build_agent_a_request(preprocessing=preprocessing)
     prompt = _build_agent_a_prompt(request, prompt_header)

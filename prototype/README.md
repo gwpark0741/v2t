@@ -67,7 +67,7 @@ from v2t_prototype.agent_a_runtime import run_agent_a_runtime
 
 video_path = Path('../videos/02_playing_table_tennis__same_class_abab_5s.mp4')
 preprocessing = run_preprocessing(video_path)
-result = run_agent_a_runtime(preprocessing=preprocessing, local_video_path=video_path)
+result = run_agent_a_runtime(preprocessing=preprocessing)
 print(result.request.video_url)
 print(len(result.response.cut_enrichments))
 PY

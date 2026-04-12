@@ -119,15 +119,13 @@ def test_upload_video_file_calls_files_api_upload(tmp_path: Path):
     client.files.upload.assert_called_once_with(file=video_path)
 
 
-def test_run_agent_a_runtime_success_with_structured_output_config(tmp_path: Path):
+def test_run_agent_a_runtime_success_with_structured_output_config():
     preprocessing = make_preprocessing_result()
-    video_path = tmp_path / "input.mp4"
-    _write_dummy_video_file(video_path)
     client = _make_mock_client(_valid_agent_a_response_json())
 
     with patch("v2t_prototype.agent_a_runtime.types.Part.from_uri") as part_from_uri:
         part_from_uri.return_value = SimpleNamespace(content="video part")
-        output = run_agent_a_runtime(preprocessing=preprocessing, local_video_path=video_path, client=client)
+        output = run_agent_a_runtime(preprocessing=preprocessing, client=client)
 
     assert output.request.video_url == "gs://bucket/sample.mp4"
     assert output.response.entity_registry.characters[0].id == "char_001"
@@ -143,20 +141,16 @@ def test_run_agent_a_runtime_success_with_structured_output_config(tmp_path: Pat
     assert "properties" in generate_kwargs["config"].response_json_schema
 
 
-def test_run_agent_a_runtime_raises_on_invalid_json_response(tmp_path: Path):
+def test_run_agent_a_runtime_raises_on_invalid_json_response():
     preprocessing = make_preprocessing_result()
-    video_path = tmp_path / "input.mp4"
-    _write_dummy_video_file(video_path)
     client = _make_mock_client("{not-json")
 
     with pytest.raises(AgentAResponseParseError):
-        run_agent_a_runtime(preprocessing=preprocessing, local_video_path=video_path, client=client)
+        run_agent_a_runtime(preprocessing=preprocessing, client=client)
 
 
-def test_run_agent_a_runtime_raises_on_schema_mismatch(tmp_path: Path):
+def test_run_agent_a_runtime_raises_on_schema_mismatch():
     preprocessing = make_preprocessing_result()
-    video_path = tmp_path / "input.mp4"
-    _write_dummy_video_file(video_path)
     client = _make_mock_client(
         json.dumps(
             {
@@ -167,13 +161,11 @@ def test_run_agent_a_runtime_raises_on_schema_mismatch(tmp_path: Path):
     )
 
     with pytest.raises(AgentAResponseParseError):
-        run_agent_a_runtime(preprocessing=preprocessing, local_video_path=video_path, client=client)
+        run_agent_a_runtime(preprocessing=preprocessing, client=client)
 
 
-def test_run_agent_a_runtime_raises_on_post_validation_failure(tmp_path: Path):
+def test_run_agent_a_runtime_raises_on_post_validation_failure():
     preprocessing = make_preprocessing_result()
-    video_path = tmp_path / "input.mp4"
-    _write_dummy_video_file(video_path)
     client = _make_mock_client(
         json.dumps(
             {
@@ -188,7 +180,7 @@ def test_run_agent_a_runtime_raises_on_post_validation_failure(tmp_path: Path):
     )
 
     with pytest.raises(AgentAPostValidationError) as exc_info:
-        run_agent_a_runtime(preprocessing=preprocessing, local_video_path=video_path, client=client)
+        run_agent_a_runtime(preprocessing=preprocessing, client=client)
     assert "missing cut enrichment for CUT_001" in exc_info.value.issues
     assert "missing cut enrichment for CUT_002" in exc_info.value.issues
 
