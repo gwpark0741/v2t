@@ -11,7 +11,7 @@ Features implemented in this phase:
   - `VideoMetadata`, `Cut`, `PreprocessingResult`
   - `extract_video_metadata(...)`
   - `detect_cuts(...)`
-  - `run_preprocessing(...)` (uploads the full video via Gemini Files API and returns `video_url`)
+  - `run_preprocessing(...)` (uploads the full video via Gemini Files API and returns `video_url` plus `video_mime_type`)
   - `AdaptiveDetector` defaults aligned to the v4 spec (`4.0 / 30 / 2 / 15.0`)
 - Static preprocessing HTML reporting:
   - `build_preprocessing_report_html(...)`
@@ -43,8 +43,8 @@ This slice adds a real Gemini Developer API path for Agent A while keeping the
 existing `agent_a.py` contract/validator module unchanged.
 
 - Upload path:
-  - `run_preprocessing(...)` uploads the full video via Gemini Files API
-  - `run_agent_a_runtime(...)` consumes the pre-uploaded `video_url` and no longer uploads inside runtime
+- `run_preprocessing(...)` uploads the full video via Gemini Files API and records `video_mime_type`
+- `run_agent_a_runtime(...)` consumes both `video_url` and the precomputed `video_mime_type`
 - Generation path:
   - model: `gemini-2.5-pro`
   - config: `response_mime_type=application/json` and `response_json_schema`

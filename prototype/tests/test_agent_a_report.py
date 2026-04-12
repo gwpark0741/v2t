@@ -30,12 +30,18 @@ def _make_sample_preprocessing_result() -> PreprocessingResult:
         Cut(id="CUT_001", start_time=0.0, end_time=5.0),
         Cut(id="CUT_002", start_time=5.0, end_time=10.0),
     ]
-    return PreprocessingResult(video_metadata=metadata, cuts=cuts, video_url="gs://test-bucket/video.mp4")
+    return PreprocessingResult(
+        video_metadata=metadata,
+        cuts=cuts,
+        video_url="gs://test-bucket/video.mp4",
+        video_mime_type="video/mp4",
+    )
 
 
 def _make_sample_runtime_output(preprocessing: PreprocessingResult) -> AgentARuntimeOutput:
     request = AgentARequest(
         video_url=preprocessing.video_url,
+        video_mime_type=preprocessing.video_mime_type,
         video_metadata=preprocessing.video_metadata,
         cuts=preprocessing.cuts,
     )

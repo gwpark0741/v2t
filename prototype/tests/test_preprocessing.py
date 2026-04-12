@@ -91,7 +91,7 @@ def test_run_preprocessing_returns_metadata_and_cuts(tmp_path: Path):
 
     with patch("v2t_prototype.preprocessing.upload_video_file", return_value=uploaded_file), patch(
         "v2t_prototype.preprocessing.wait_for_uploaded_file_active", return_value=uploaded_file
-    ):
+    ), patch("v2t_prototype.preprocessing.guess_type", return_value=("video/mp4", None)):
         result = run_preprocessing(
             video_path,
             adaptive_threshold=1.0,
@@ -107,6 +107,7 @@ def test_run_preprocessing_returns_metadata_and_cuts(tmp_path: Path):
     assert result.cuts
     assert result.cuts[0].start_time == 0.0
     assert result.cuts[-1].end_time == pytest.approx(result.video_metadata.duration_seconds, abs=0.1)
+    assert result.video_mime_type == "video/mp4"
 
 
 def test_run_preprocessing_uploads_video_and_returns_video_url(tmp_path: Path):
@@ -121,7 +122,7 @@ def test_run_preprocessing_uploads_video_and_returns_video_url(tmp_path: Path):
 
     with patch("v2t_prototype.preprocessing.upload_video_file", return_value=uploaded_file) as upload_mock, patch(
         "v2t_prototype.preprocessing.wait_for_uploaded_file_active", return_value=uploaded_file
-    ) as wait_mock:
+    ) as wait_mock, patch("v2t_prototype.preprocessing.guess_type", return_value=("video/mp4", None)):
         result = run_preprocessing(
             video_path,
             adaptive_threshold=1.0,
@@ -134,3 +135,4 @@ def test_run_preprocessing_uploads_video_and_returns_video_url(tmp_path: Path):
     upload_mock.assert_called_once_with(client, video_path)
     wait_mock.assert_called_once_with(client, uploaded_file)
     assert result.video_url == "gs://bucket/uploaded_video.mp4"
+    assert result.video_mime_type == "video/mp4"

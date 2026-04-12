@@ -30,6 +30,7 @@ def make_preprocessing_result() -> PreprocessingResult:
                 "height": 720,
             },
             "video_url": "gs://bucket/sample.mp4",
+            "video_mime_type": "video/mp4",
             "cuts": [
                 {"id": "CUT_001", "start_time": 0.0, "end_time": 4.0},
                 {"id": "CUT_002", "start_time": 4.0, "end_time": 10.0},

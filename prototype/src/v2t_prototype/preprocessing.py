@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Optional
+from mimetypes import guess_type
 
 import cv2
 from google import genai
@@ -163,8 +164,10 @@ def run_preprocessing(
     uploaded_file = upload_video_file(runtime_client, video_path)
     uploaded_file = wait_for_uploaded_file_active(runtime_client, uploaded_file)
     video_url = get_uploaded_video_url(uploaded_file)
+    mime_type, _ = guess_type(metadata.video_path)
     return PreprocessingResult(
         video_metadata=metadata,
         cuts=cuts,
         video_url=video_url,
+        video_mime_type=mime_type or "application/octet-stream",
     )

@@ -18,6 +18,7 @@ def _sample_result() -> PreprocessingResult:
             height=1080,
         ),
         video_url="gs://bucket/internal_sample.mp4",
+        video_mime_type="video/mp4",
         cuts=[
             Cut(id="CUT_001", start_time=0.0, end_time=4.0),
             Cut(id="CUT_002", start_time=4.0, end_time=10.0),

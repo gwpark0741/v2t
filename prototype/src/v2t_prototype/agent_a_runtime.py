@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from mimetypes import guess_type
 from typing import Optional
 
 from google import genai
@@ -89,11 +88,9 @@ def run_agent_a_runtime(
 
     request = build_agent_a_request(preprocessing=preprocessing)
     prompt = _build_agent_a_prompt(request, prompt_header)
-    video_path = Path(preprocessing.video_metadata.video_path)
-    mime_type, _ = guess_type(video_path.name)
     video_part = types.Part.from_uri(
         file_uri=request.video_url,
-        mime_type=mime_type or "application/octet-stream",
+        mime_type=request.video_mime_type,
     )
 
     gemini_response = runtime_client.models.generate_content(

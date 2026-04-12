@@ -11,6 +11,7 @@ def build_agent_a_request(preprocessing: PreprocessingResult) -> AgentARequest:
     """
     return AgentARequest(
         video_url=preprocessing.video_url,
+        video_mime_type=preprocessing.video_mime_type,
         video_metadata=preprocessing.video_metadata,
         cuts=preprocessing.cuts,
     )

@@ -60,6 +60,7 @@ class PreprocessingResult(BaseModel):
     video_metadata: VideoMetadata
     cuts: List[Cut]
     video_url: str = Field(min_length=1)
+    video_mime_type: str = Field(min_length=1)
 
     model_config = ConfigDict(extra="forbid")
 
@@ -74,6 +75,7 @@ class AgentARequest(BaseModel):
     """Agent A 호출에 전달되는 최소 입력 계약."""
 
     video_url: str = Field(min_length=1)
+    video_mime_type: str = Field(min_length=1)
     video_metadata: VideoMetadata
     cuts: List[Cut]
 
