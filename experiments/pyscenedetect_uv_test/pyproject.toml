@@ -1,7 +1,0 @@
-[project]
-name = "pyscenedetect-uv-test"
-version = "0.1.0"
-requires-python = ">=3.9"
-dependencies = [
-    "scenedetect[opencv]>=0.6.7.1",
-]
