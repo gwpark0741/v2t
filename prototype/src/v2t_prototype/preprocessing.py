@@ -145,16 +145,10 @@ def run_preprocessing(
 ) -> PreprocessingResult:
     """전처리 엔트리포인트입니다.
 
-    반환 계약은 단순하게 유지합니다:
-    1) 영상 물리 메타데이터 추출
-    2) AdaptiveDetector 기반 컷 경계 확정
-    3) 두 결과를 `PreprocessingResult`로 묶어 반환
-    4) Gemini Files API에 업로드하고 `video_url`을 포함
+    `run_local_preprocessing` 결과를 재사용하고, 업로드 경로만 추가 수행합니다.
     """
-    metadata = extract_video_metadata(video_path)
-    cuts = _detect_cuts_with_metadata(
+    metadata, cuts = run_local_preprocessing(
         video_path=video_path,
-        metadata=metadata,
         adaptive_threshold=adaptive_threshold,
         min_scene_len=min_scene_len,
         window_width=window_width,
@@ -171,3 +165,24 @@ def run_preprocessing(
         video_url=video_url,
         video_mime_type=mime_type or "application/octet-stream",
     )
+
+
+def run_local_preprocessing(
+    video_path: Path,
+    *,
+    adaptive_threshold: float = 4.0,
+    min_scene_len: int = 30,
+    window_width: int = 2,
+    min_content_val: float = 15.0,
+) -> tuple[VideoMetadata, list[Cut]]:
+    """로컬 전처리(메타데이터 + 컷 검출)만 수행하고 결과를 반환합니다."""
+    metadata = extract_video_metadata(video_path)
+    cuts = _detect_cuts_with_metadata(
+        video_path=video_path,
+        metadata=metadata,
+        adaptive_threshold=adaptive_threshold,
+        min_scene_len=min_scene_len,
+        window_width=window_width,
+        min_content_val=min_content_val,
+    )
+    return metadata, cuts

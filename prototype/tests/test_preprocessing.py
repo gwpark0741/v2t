@@ -10,7 +10,7 @@ import pytest
 from google.genai import types as genai_types
 
 from v2t_prototype.models import Cut, PreprocessingResult, VideoMetadata
-from v2t_prototype.preprocessing import detect_cuts, run_preprocessing
+from v2t_prototype.preprocessing import detect_cuts, run_local_preprocessing, run_preprocessing
 
 
 def _write_synthetic_video(path: Path) -> tuple[float, int]:
@@ -136,3 +136,21 @@ def test_run_preprocessing_uploads_video_and_returns_video_url(tmp_path: Path):
     wait_mock.assert_called_once_with(client, uploaded_file)
     assert result.video_url == "gs://bucket/uploaded_video.mp4"
     assert result.video_mime_type == "video/mp4"
+
+
+def test_run_local_preprocessing_returns_metadata_and_cuts(tmp_path: Path):
+    video_path = tmp_path / "synthetic_local_preprocessing.avi"
+    fps, frame_count = _write_synthetic_video(video_path)
+
+    metadata, cuts = run_local_preprocessing(
+        video_path,
+        adaptive_threshold=1.0,
+        min_scene_len=5,
+        window_width=2,
+        min_content_val=5.0,
+    )
+
+    assert metadata.frame_count == frame_count
+    assert metadata.fps == pytest.approx(fps, abs=0.1)
+    assert cuts
+    assert cuts[0].start_time == 0.0
