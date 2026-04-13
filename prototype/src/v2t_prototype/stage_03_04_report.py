@@ -69,7 +69,7 @@ def build_stage_03_04_report_html(
                 "<div class='kv compact'>"
                 f"<div class='label'>Clip URL</div><div>{escape(clip.clip_video_url)}</div>"
                 f"<div class='label'>Clip Path</div><div>{escape(clip.local_clip_path)}</div>"
-                f"<div class='label'>Padding</div><div>{clip.actual_padding_start:.3f}s / {clip.actual_padding_end:.3f}s</div>"
+                f"<div class='label'>MIME Type</div><div>{escape(clip.clip_video_mime_type)}</div>"
                 "</div>"
             )
         elif skipped is not None:

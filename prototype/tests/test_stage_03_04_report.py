@@ -99,10 +99,6 @@ def _sample_segment_prep() -> SegmentPrepResult:
                 clip_video_url="https://example.com/cut001",
                 clip_gemini_file_name="files/cut001",
                 clip_video_mime_type="video/mp4",
-                padded_start_time=0.0,
-                padded_end_time=5.0,
-                actual_padding_start=0.0,
-                actual_padding_end=1.0,
             )
         ],
         skipped_cuts=[],

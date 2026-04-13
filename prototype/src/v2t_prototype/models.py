@@ -117,18 +117,8 @@ class SegmentClip(BaseModel):
     clip_video_url: str = Field(min_length=1)
     clip_gemini_file_name: str = Field(min_length=1)
     clip_video_mime_type: str = Field(min_length=1)
-    padded_start_time: float = Field(ge=0.0)
-    padded_end_time: float = Field(ge=0.0)
-    actual_padding_start: float = Field(ge=0.0)
-    actual_padding_end: float = Field(ge=0.0)
 
     model_config = ConfigDict(extra="forbid")
-
-    @model_validator(mode="after")
-    def check_order(self) -> "SegmentClip":
-        if self.padded_end_time <= self.padded_start_time:
-            raise ValueError("padded_end_time must be > padded_start_time")
-        return self
 
 
 class SkippedCut(BaseModel):

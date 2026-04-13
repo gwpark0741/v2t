@@ -77,10 +77,8 @@ def test_run_segment_prep_success(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     assert len(result.clips) == 1
     assert result.clips[0].cut_id == "CUT_001"
     assert result.clips[0].clip_video_url == "clip://url"
+    assert result.clips[0].clip_video_mime_type == "video/mp4"
     assert Path(result.clips[0].local_clip_path).exists()
-    assert result.clips[0].actual_padding_start == 0.0
-    assert result.clips[0].actual_padding_end == 0.5
-    assert result.clips[0].padded_end_time == 5.5
     assert result.skipped_cuts == []
     assert result.warnings == []
 

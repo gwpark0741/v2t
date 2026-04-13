@@ -69,11 +69,9 @@ def run_segment_prep(
     ffmpeg_bin: str = "ffmpeg",
     clips_dir: Path,
     client: Optional[genai.Client] = None,
-    clip_padding_seconds: float = 0.5,
 ) -> SegmentPrepResult:
     """Create and upload cut-level clips for downstream Agent B."""
     source_video_path = Path(full_video_asset.local.video_path)
-    video_duration = full_video_asset.local.video_metadata.duration_seconds
     runtime_client = client or create_gemini_client()
     resolved_ffmpeg_bin = resolve_ffmpeg_bin(ffmpeg_bin)
     clips_dir.mkdir(parents=True, exist_ok=True)
@@ -83,17 +81,13 @@ def run_segment_prep(
     warnings: list[WarningItem] = []
 
     for cut in full_video_asset.local.cuts:
-        padded_start = max(0.0, cut.start_time - clip_padding_seconds)
-        padded_end = min(video_duration, cut.end_time + clip_padding_seconds)
-        actual_padding_start = round(cut.start_time - padded_start, 3)
-        actual_padding_end = round(padded_end - cut.end_time, 3)
         clip_output_path = _build_clip_path(clips_dir, cut.id)
 
         ffmpeg_cmd = _build_ffmpeg_command(
             ffmpeg_bin=resolved_ffmpeg_bin,
             source_video_path=source_video_path,
-            start_time=padded_start,
-            end_time=padded_end,
+            start_time=cut.start_time,
+            end_time=cut.end_time,
             output_path=clip_output_path,
         )
         try:
@@ -169,10 +163,6 @@ def run_segment_prep(
                 clip_video_url=clip_video_url,
                 clip_gemini_file_name=clip_gemini_file_name,
                 clip_video_mime_type=mime_type or "video/mp4",
-                padded_start_time=round(padded_start, 3),
-                padded_end_time=round(padded_end, 3),
-                actual_padding_start=actual_padding_start,
-                actual_padding_end=actual_padding_end,
             )
         )
 

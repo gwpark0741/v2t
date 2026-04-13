@@ -16,10 +16,6 @@ def _sample_result() -> SegmentPrepResult:
         clip_video_url="https://example.com/cut01",
         clip_gemini_file_name="files/cut01",
         clip_video_mime_type="video/mp4",
-        padded_start_time=0.0,
-        padded_end_time=5.5,
-        actual_padding_start=1.0,
-        actual_padding_end=0.5,
     )
     skipped = SkippedCut(cut_id="CUT_002", reason="FFMPEG_FAILURE", error_detail="boom")
     warning = WarningItem(code="SEGMENT_PREP_FFMPEG_FAILURE", severity="warning", message="clip failed", context={})
@@ -38,6 +34,7 @@ def test_build_segment_prep_report_html_contains_key_fields():
     assert "CUT_001" in html
     assert "CUT_002" in html
     assert "https://example.com/cut01" in html
+    assert "video/mp4" in html
     assert "Skipped Cuts" in html
     assert "Warnings" in html
 

@@ -19,8 +19,7 @@ def build_segment_prep_report_html(
             f"<td>{escape(clip.cut_id)}</td>"
             f"<td>{escape(clip.local_clip_path)}</td>"
             f"<td>{escape(clip.clip_video_url)}</td>"
-            f"<td>{clip.padded_start_time:.3f}</td>"
-            f"<td>{clip.padded_end_time:.3f}</td>"
+            f"<td>{escape(clip.clip_video_mime_type)}</td>"
             "</tr>"
         )
         for clip in result.clips
@@ -121,7 +120,7 @@ def build_segment_prep_report_html(
       <h2>Successful Clips</h2>
       <table>
         <thead>
-          <tr><th>Cut ID</th><th>Local Clip Path</th><th>Clip Video URL</th><th>Padded Start</th><th>Padded End</th></tr>
+          <tr><th>Cut ID</th><th>Local Clip Path</th><th>Clip Video URL</th><th>MIME Type</th></tr>
         </thead>
         <tbody>{clip_rows}</tbody>
       </table>
