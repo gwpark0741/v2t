@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Literal, List, Optional, Union, Dict, Any
+from pathlib import Path
+from typing import Literal, List, Optional, Union, Dict, Any, Generic, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -20,6 +21,7 @@ StageName = Literal[
     "stage_07_final",
 ]
 StageExecutionStatus = Literal["pending", "running", "completed", "failed", "skipped"]
+T = TypeVar("T")
 
 
 class Interval(BaseModel):
@@ -126,6 +128,41 @@ class RunManifest(BaseModel):
     created_at_utc: str
     entry_stage: str | None = None
     stages: List[StageStatus]
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class StageWarningsRecord(BaseModel):
+    stage: StageName
+    generated_at_utc: str
+    warnings: List["WarningItem"]
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class StageErrorRecord(BaseModel):
+    stage: StageName
+    failed_at_utc: str
+    attempt_count: int = Field(ge=1)
+    retryable: bool
+    error_class: str
+    message: str
+    context: Dict[str, Any]
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class LoadedStageBundle(BaseModel, Generic[T]):
+    stage: StageName
+    status: StageExecutionStatus
+    stage_dir: Path
+    output_path: Path | None = None
+    warnings_path: Path | None = None
+    error_path: Path | None = None
+    report_path: Path | None = None
+    output: T | None = None
+    warnings: List["WarningItem"] = Field(default_factory=list)
+    error: StageErrorRecord | None = None
 
     model_config = ConfigDict(extra="forbid")
 
