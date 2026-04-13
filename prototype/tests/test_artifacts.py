@@ -10,10 +10,13 @@ from v2t_prototype.artifacts import (
     LOCAL_PREPROCESSING_STAGE_DIR,
     RUN_MANIFEST_FILENAME,
     StageArtifactLoadError,
+    ensure_run_manifest,
     get_stage_dir,
     load_stage_bundle,
     load_run_manifest,
+    mark_stage_failed,
     require_completed_stage_output,
+    write_stage_failure_artifacts,
     write_full_video_asset_artifacts,
     write_local_preprocessing_artifacts,
 )
@@ -21,6 +24,7 @@ from v2t_prototype.models import (
     Cut,
     FullVideoAssetResult,
     LocalPreprocessingResult,
+    StageErrorRecord,
     VideoMetadata,
     WarningItem,
 )
@@ -234,3 +238,67 @@ def test_load_stage_bundle_raises_on_output_schema_mismatch(tmp_path: Path):
             LOCAL_PREPROCESSING_STAGE_DIR,
             LocalPreprocessingResult,
         )
+
+
+def test_write_stage_failure_artifacts_records_error_and_failed_status(tmp_path: Path):
+    error = StageErrorRecord(
+        stage=FULL_VIDEO_ASSET_STAGE_DIR,
+        failed_at_utc="2026-04-13T08:00:00Z",
+        attempt_count=3,
+        retryable=True,
+        error_class="GeminiFileUploadTimeoutError",
+        message="Uploaded file did not become ACTIVE within timeout.",
+        context={"timeout_seconds": 60.0},
+    )
+    warnings = [
+        WarningItem(
+            code="UPLOAD_RETRY_EXHAUSTED",
+            severity="error",
+            message="Upload retries were exhausted before the file became ACTIVE.",
+            context={"attempt_count": 3},
+        )
+    ]
+
+    stage_dir = write_stage_failure_artifacts(
+        stage=FULL_VIDEO_ASSET_STAGE_DIR,
+        video_path="/tmp/sample_video.mp4",
+        error=error,
+        runs_dir=tmp_path,
+        run_id="run_007",
+        warnings=warnings,
+    )
+
+    assert stage_dir == tmp_path / "run_007" / FULL_VIDEO_ASSET_STAGE_DIR
+    assert (stage_dir / "warnings.json").exists()
+    assert (stage_dir / "error.json").exists()
+    assert not (stage_dir / "output.json").exists()
+
+    manifest = load_run_manifest(tmp_path / "run_007")
+    stage_statuses = {stage.stage: stage for stage in manifest.stages}
+    assert stage_statuses[FULL_VIDEO_ASSET_STAGE_DIR].status == "failed"
+    assert stage_statuses[FULL_VIDEO_ASSET_STAGE_DIR].error_message == error.message
+
+    bundle = load_stage_bundle(tmp_path / "run_007", FULL_VIDEO_ASSET_STAGE_DIR)
+    assert bundle.status == "failed"
+    assert bundle.output is None
+    assert bundle.error == error
+    assert [item.code for item in bundle.warnings] == ["UPLOAD_RETRY_EXHAUSTED"]
+
+
+def test_mark_stage_failed_updates_manifest_status_and_error_message(tmp_path: Path):
+    _, manifest = ensure_run_manifest(
+        runs_dir=tmp_path,
+        run_id="run_008",
+        video_path="/tmp/sample_video.mp4",
+    )
+
+    updated = mark_stage_failed(
+        manifest,
+        stage_dir=FULL_VIDEO_ASSET_STAGE_DIR,
+        error_message="Upload failed after retries.",
+    )
+    stage_statuses = {stage.stage: stage for stage in updated.stages}
+
+    assert stage_statuses[FULL_VIDEO_ASSET_STAGE_DIR].status == "failed"
+    assert stage_statuses[FULL_VIDEO_ASSET_STAGE_DIR].error_message == "Upload failed after retries."
+    assert stage_statuses[FULL_VIDEO_ASSET_STAGE_DIR].completed_at is not None

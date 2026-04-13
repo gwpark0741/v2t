@@ -131,6 +131,31 @@ def mark_stage_completed(manifest: RunManifest, *, stage_dir: str) -> RunManifes
     return manifest.model_copy(update={"stages": updated_stages})
 
 
+def mark_stage_failed(
+    manifest: RunManifest,
+    *,
+    stage_dir: str,
+    error_message: str,
+) -> RunManifest:
+    timestamp = _utc_now_z()
+    updated_stages: list[StageStatus] = []
+    for stage in manifest.stages:
+        if stage.stage == stage_dir:
+            updated_stages.append(
+                stage.model_copy(
+                    update={
+                        "status": "failed",
+                        "started_at": stage.started_at or timestamp,
+                        "completed_at": timestamp,
+                        "error_message": error_message,
+                    }
+                )
+            )
+        else:
+            updated_stages.append(stage)
+    return manifest.model_copy(update={"stages": updated_stages})
+
+
 def get_stage_dir(run_dir: Path, stage: StageName) -> Path:
     return run_dir / stage
 
@@ -244,6 +269,11 @@ class StageArtifacts:
         warnings_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
         return warnings_path
 
+    def write_error(self, error: StageErrorRecord) -> Path:
+        error_path = self.stage_dir / "error.json"
+        error_path.write_text(error.model_dump_json(indent=2), encoding="utf-8")
+        return error_path
+
     def write_report(
         self,
         result: LocalPreprocessingResult | FullVideoAssetResult,
@@ -310,4 +340,34 @@ def write_full_video_asset_artifacts(
     artifacts.write_warnings(stage=FULL_VIDEO_ASSET_STAGE_DIR, warnings=list(warnings or []))
     artifacts.write_report(result, title=report_title, warnings=warnings)
     write_run_manifest(run_dir, mark_stage_completed(manifest, stage_dir=FULL_VIDEO_ASSET_STAGE_DIR))
+    return stage_dir
+
+
+def write_stage_failure_artifacts(
+    *,
+    stage: StageName,
+    video_path: str,
+    error: StageErrorRecord,
+    runs_dir: Path = Path("runs"),
+    run_id: str | None = None,
+    warnings: Sequence[WarningItem] | None = None,
+) -> Path:
+    actual_run_id = run_id or generate_run_id(Path(video_path))
+    run_dir, manifest = ensure_run_manifest(
+        runs_dir=runs_dir,
+        run_id=actual_run_id,
+        video_path=video_path,
+    )
+    stage_dir = run_dir / stage
+    artifacts = StageArtifacts(stage_dir)
+    artifacts.write_warnings(stage=stage, warnings=list(warnings or []))
+    artifacts.write_error(error)
+    write_run_manifest(
+        run_dir,
+        mark_stage_failed(
+            manifest,
+            stage_dir=stage,
+            error_message=error.message,
+        ),
+    )
     return stage_dir
