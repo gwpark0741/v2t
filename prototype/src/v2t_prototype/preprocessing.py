@@ -154,16 +154,16 @@ def run_preprocessing(
         window_width=window_width,
         min_content_val=min_content_val,
     )
-    runtime_client = client or create_gemini_client()
-    uploaded_file = upload_video_file(runtime_client, video_path)
-    uploaded_file = wait_for_uploaded_file_active(runtime_client, uploaded_file)
-    video_url = get_uploaded_video_url(uploaded_file)
-    mime_type, _ = guess_type(metadata.video_path)
+    video_url, video_mime_type = prepare_full_video_asset(
+        video_path=video_path,
+        metadata=metadata,
+        client=client,
+    )
     return PreprocessingResult(
         video_metadata=metadata,
         cuts=cuts,
         video_url=video_url,
-        video_mime_type=mime_type or "application/octet-stream",
+        video_mime_type=video_mime_type,
     )
 
 
@@ -186,3 +186,18 @@ def run_local_preprocessing(
         min_content_val=min_content_val,
     )
     return metadata, cuts
+
+
+def prepare_full_video_asset(
+    video_path: Path,
+    *,
+    metadata: VideoMetadata,
+    client: Optional[genai.Client] = None,
+) -> tuple[str, str]:
+    """전체 영상을 업로드하고 (video_url, video_mime_type)을 반환합니다."""
+    runtime_client = client or create_gemini_client()
+    uploaded_file = upload_video_file(runtime_client, video_path)
+    uploaded_file = wait_for_uploaded_file_active(runtime_client, uploaded_file)
+    video_url = get_uploaded_video_url(uploaded_file)
+    mime_type, _ = guess_type(metadata.video_path)
+    return video_url, mime_type or "application/octet-stream"

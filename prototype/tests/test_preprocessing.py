@@ -10,7 +10,12 @@ import pytest
 from google.genai import types as genai_types
 
 from v2t_prototype.models import Cut, PreprocessingResult, VideoMetadata
-from v2t_prototype.preprocessing import detect_cuts, run_local_preprocessing, run_preprocessing
+from v2t_prototype.preprocessing import (
+    detect_cuts,
+    prepare_full_video_asset,
+    run_local_preprocessing,
+    run_preprocessing,
+)
 
 
 def _write_synthetic_video(path: Path) -> tuple[float, int]:
@@ -154,3 +159,36 @@ def test_run_local_preprocessing_returns_metadata_and_cuts(tmp_path: Path):
     assert metadata.fps == pytest.approx(fps, abs=0.1)
     assert cuts
     assert cuts[0].start_time == 0.0
+
+
+def test_prepare_full_video_asset_uploads_and_returns_url_and_mime(tmp_path: Path):
+    video_path = tmp_path / "synthetic_asset.avi"
+    _write_synthetic_video(video_path)
+    metadata = VideoMetadata(
+        video_path=str(video_path),
+        fps=10.0,
+        frame_count=45,
+        duration_seconds=4.5,
+        width=96,
+        height=64,
+    )
+    client = Mock()
+    uploaded_file = SimpleNamespace(
+        name="files/preprocessing_asset",
+        uri="gs://bucket/preprocessing_asset.mp4",
+        state=genai_types.FileState.ACTIVE,
+    )
+
+    with patch("v2t_prototype.preprocessing.upload_video_file", return_value=uploaded_file) as upload_mock, patch(
+        "v2t_prototype.preprocessing.wait_for_uploaded_file_active", return_value=uploaded_file
+    ) as wait_mock, patch("v2t_prototype.preprocessing.guess_type", return_value=("video/mp4", None)):
+        video_url, video_mime_type = prepare_full_video_asset(
+            video_path=video_path,
+            metadata=metadata,
+            client=client,
+        )
+
+    upload_mock.assert_called_once_with(client, video_path)
+    wait_mock.assert_called_once_with(client, uploaded_file)
+    assert video_url == "gs://bucket/preprocessing_asset.mp4"
+    assert video_mime_type == "video/mp4"
