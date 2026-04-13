@@ -5,16 +5,20 @@ import json
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Sequence
+from typing import Sequence, TypeVar
 
 from pydantic import BaseModel
 
 from .full_video_asset_report import write_full_video_asset_report
 from .models import (
     FullVideoAssetResult,
+    LoadedStageBundle,
     LocalPreprocessingResult,
     RunManifest,
+    StageErrorRecord,
+    StageWarningsRecord,
     StageStatus,
+    StageName,
     WarningItem,
 )
 from .preprocessing_report import write_preprocessing_report
@@ -38,6 +42,15 @@ ALL_STAGE_DIRS = [
     AGENT_C_STAGE_DIR,
     FINAL_STAGE_DIR,
 ]
+T = TypeVar("T")
+
+
+class RunManifestLoadError(RuntimeError):
+    pass
+
+
+class StageArtifactLoadError(RuntimeError):
+    pass
 
 
 def _utc_now_z() -> str:
@@ -66,7 +79,12 @@ def _build_default_manifest(*, run_id: str, video_path: str) -> RunManifest:
 
 def load_run_manifest(run_dir: Path) -> RunManifest:
     manifest_path = run_dir / RUN_MANIFEST_FILENAME
-    return RunManifest.model_validate_json(manifest_path.read_text(encoding="utf-8"))
+    try:
+        return RunManifest.model_validate_json(manifest_path.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        raise RunManifestLoadError(f"Run manifest not found: {manifest_path}") from exc
+    except Exception as exc:
+        raise RunManifestLoadError(f"Failed to load run manifest: {manifest_path}") from exc
 
 
 def write_run_manifest(run_dir: Path, manifest: RunManifest) -> Path:
@@ -111,6 +129,99 @@ def mark_stage_completed(manifest: RunManifest, *, stage_dir: str) -> RunManifes
         else:
             updated_stages.append(stage)
     return manifest.model_copy(update={"stages": updated_stages})
+
+
+def get_stage_dir(run_dir: Path, stage: StageName) -> Path:
+    return run_dir / stage
+
+
+def get_stage_status(manifest: RunManifest, stage: StageName) -> StageStatus:
+    for stage_status in manifest.stages:
+        if stage_status.stage == stage:
+            return stage_status
+    raise StageArtifactLoadError(f"Stage {stage} was not found in run manifest")
+
+
+def _load_warnings_envelope(stage_dir: Path, stage: StageName) -> tuple[Path | None, list[WarningItem]]:
+    warnings_path = stage_dir / "warnings.json"
+    if not warnings_path.exists():
+        return None, []
+
+    try:
+        envelope = StageWarningsRecord.model_validate_json(warnings_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise StageArtifactLoadError(f"Failed to load warnings from {warnings_path}") from exc
+
+    if envelope.stage != stage:
+        raise StageArtifactLoadError(
+            f"Warnings stage mismatch: expected {stage}, found {envelope.stage}"
+        )
+    return warnings_path, envelope.warnings
+
+
+def _load_stage_error(stage_dir: Path, stage: StageName) -> tuple[Path | None, StageErrorRecord | None]:
+    error_path = stage_dir / "error.json"
+    if not error_path.exists():
+        return None, None
+
+    try:
+        error = StageErrorRecord.model_validate_json(error_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise StageArtifactLoadError(f"Failed to load stage error from {error_path}") from exc
+
+    if error.stage != stage:
+        raise StageArtifactLoadError(f"Stage error mismatch: expected {stage}, found {error.stage}")
+    return error_path, error
+
+
+def load_stage_bundle(
+    run_dir: Path,
+    stage: StageName,
+    model_class: type[T] | None = None,
+) -> LoadedStageBundle[T]:
+    manifest = load_run_manifest(run_dir)
+    stage_status = get_stage_status(manifest, stage)
+    stage_dir = get_stage_dir(run_dir, stage)
+    warnings_path, warnings = _load_warnings_envelope(stage_dir, stage)
+    error_path, error = _load_stage_error(stage_dir, stage)
+    report_path = stage_dir / "report.html"
+
+    output: T | None = None
+    output_path: Path | None = None
+    if stage_status.status == "completed":
+        if model_class is None:
+            raise StageArtifactLoadError(f"model_class is required to load completed stage {stage}")
+        output_path = stage_dir / "output.json"
+        if not output_path.exists():
+            raise StageArtifactLoadError(f"Completed stage output is missing: {output_path}")
+        try:
+            output = model_class.model_validate_json(output_path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            raise StageArtifactLoadError(f"Failed to load stage output from {output_path}") from exc
+
+    return LoadedStageBundle(
+        stage=stage,
+        status=stage_status.status,
+        stage_dir=stage_dir,
+        output_path=output_path if output_path and output_path.exists() else None,
+        warnings_path=warnings_path,
+        error_path=error_path,
+        report_path=report_path if report_path.exists() else None,
+        output=output,
+        warnings=warnings,
+        error=error,
+    )
+
+
+def require_completed_stage_output(
+    run_dir: Path,
+    stage: StageName,
+    model_class: type[T],
+) -> T:
+    bundle = load_stage_bundle(run_dir, stage, model_class)
+    if bundle.status != "completed" or bundle.output is None:
+        raise StageArtifactLoadError(f"Stage {stage} is not available as completed output")
+    return bundle.output
 
 
 class StageArtifacts:

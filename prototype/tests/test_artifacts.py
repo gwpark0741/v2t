@@ -3,15 +3,27 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from v2t_prototype.artifacts import (
     FULL_VIDEO_ASSET_STAGE_DIR,
     LOCAL_PREPROCESSING_STAGE_DIR,
     RUN_MANIFEST_FILENAME,
+    StageArtifactLoadError,
+    get_stage_dir,
+    load_stage_bundle,
     load_run_manifest,
+    require_completed_stage_output,
     write_full_video_asset_artifacts,
     write_local_preprocessing_artifacts,
 )
-from v2t_prototype.models import Cut, FullVideoAssetResult, LocalPreprocessingResult, VideoMetadata, WarningItem
+from v2t_prototype.models import (
+    Cut,
+    FullVideoAssetResult,
+    LocalPreprocessingResult,
+    VideoMetadata,
+    WarningItem,
+)
 
 
 def _sample_local_result() -> LocalPreprocessingResult:
@@ -141,3 +153,84 @@ def test_manifest_tracks_stage_progress_across_stage_01_and_02(tmp_path: Path):
     assert stage_statuses[FULL_VIDEO_ASSET_STAGE_DIR].status == "completed"
     assert stage_statuses[LOCAL_PREPROCESSING_STAGE_DIR].completed_at is not None
     assert stage_statuses[FULL_VIDEO_ASSET_STAGE_DIR].completed_at is not None
+
+
+def test_load_stage_bundle_returns_completed_stage_01_output_and_warnings(tmp_path: Path):
+    local_result = _sample_local_result()
+    warnings = [
+        WarningItem(
+            code="CUT_ENDS_BEFORE_VIDEO_DURATION",
+            severity="warning",
+            message="The last cut does not align with the full video duration.",
+            context={"cut_id": "CUT_002"},
+        )
+    ]
+    write_local_preprocessing_artifacts(
+        local_result,
+        runs_dir=tmp_path,
+        run_id="run_003",
+        warnings=warnings,
+    )
+
+    bundle = load_stage_bundle(
+        tmp_path / "run_003",
+        LOCAL_PREPROCESSING_STAGE_DIR,
+        LocalPreprocessingResult,
+    )
+
+    assert bundle.status == "completed"
+    assert bundle.output == local_result
+    assert bundle.output_path == get_stage_dir(tmp_path / "run_003", LOCAL_PREPROCESSING_STAGE_DIR) / "output.json"
+    assert bundle.warnings_path == get_stage_dir(tmp_path / "run_003", LOCAL_PREPROCESSING_STAGE_DIR) / "warnings.json"
+    assert bundle.error is None
+    assert [item.code for item in bundle.warnings] == ["CUT_ENDS_BEFORE_VIDEO_DURATION"]
+
+
+def test_load_stage_bundle_returns_pending_stage_without_output(tmp_path: Path):
+    write_local_preprocessing_artifacts(
+        _sample_local_result(),
+        runs_dir=tmp_path,
+        run_id="run_004",
+        warnings=[],
+    )
+
+    bundle = load_stage_bundle(tmp_path / "run_004", FULL_VIDEO_ASSET_STAGE_DIR)
+
+    assert bundle.status == "pending"
+    assert bundle.output is None
+    assert bundle.warnings == []
+    assert bundle.error is None
+
+
+def test_require_completed_stage_output_raises_for_pending_stage(tmp_path: Path):
+    write_local_preprocessing_artifacts(
+        _sample_local_result(),
+        runs_dir=tmp_path,
+        run_id="run_005",
+        warnings=[],
+    )
+
+    with pytest.raises(StageArtifactLoadError):
+        require_completed_stage_output(
+            tmp_path / "run_005",
+            FULL_VIDEO_ASSET_STAGE_DIR,
+            FullVideoAssetResult,
+        )
+
+
+def test_load_stage_bundle_raises_on_output_schema_mismatch(tmp_path: Path):
+    write_local_preprocessing_artifacts(
+        _sample_local_result(),
+        runs_dir=tmp_path,
+        run_id="run_006",
+        warnings=[],
+    )
+    output_path = tmp_path / "run_006" / LOCAL_PREPROCESSING_STAGE_DIR / "output.json"
+    output_path.write_text('{"not":"the expected schema"}', encoding="utf-8")
+
+    with pytest.raises(StageArtifactLoadError):
+        load_stage_bundle(
+            tmp_path / "run_006",
+            LOCAL_PREPROCESSING_STAGE_DIR,
+            LocalPreprocessingResult,
+        )
