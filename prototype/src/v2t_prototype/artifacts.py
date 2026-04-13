@@ -10,12 +10,38 @@ from typing import Sequence
 from pydantic import BaseModel
 
 from .full_video_asset_report import write_full_video_asset_report
-from .models import FullVideoAssetResult, LocalPreprocessingResult, WarningItem
+from .models import (
+    FullVideoAssetResult,
+    LocalPreprocessingResult,
+    RunManifest,
+    StageStatus,
+    WarningItem,
+)
 from .preprocessing_report import write_preprocessing_report
 
 
 LOCAL_PREPROCESSING_STAGE_DIR = "stage_01_local_preprocessing"
 FULL_VIDEO_ASSET_STAGE_DIR = "stage_02_full_video_asset"
+AGENT_A_STAGE_DIR = "stage_03_agent_a"
+SEGMENT_PREP_STAGE_DIR = "stage_04_segment_prep"
+AGENT_B_STAGE_DIR = "stage_05_agent_b"
+AGENT_C_STAGE_DIR = "stage_06_agent_c"
+FINAL_STAGE_DIR = "stage_07_final"
+RUN_MANIFEST_FILENAME = "run_manifest.json"
+
+ALL_STAGE_DIRS = [
+    LOCAL_PREPROCESSING_STAGE_DIR,
+    FULL_VIDEO_ASSET_STAGE_DIR,
+    AGENT_A_STAGE_DIR,
+    SEGMENT_PREP_STAGE_DIR,
+    AGENT_B_STAGE_DIR,
+    AGENT_C_STAGE_DIR,
+    FINAL_STAGE_DIR,
+]
+
+
+def _utc_now_z() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def generate_run_id(video_path: Path) -> str:
@@ -23,6 +49,68 @@ def generate_run_id(video_path: Path) -> str:
     stem = re.sub(r"[^a-z0-9]", "_", video_path.stem.lower())[:20]
     suffix = hashlib.sha1(str(video_path.expanduser().resolve()).encode("utf-8")).hexdigest()[:6]
     return f"{timestamp}_{stem}_{suffix}"
+
+
+def _build_default_manifest(*, run_id: str, video_path: str) -> RunManifest:
+    return RunManifest(
+        run_id=run_id,
+        video_path=video_path,
+        created_at_utc=_utc_now_z(),
+        entry_stage=None,
+        stages=[
+            StageStatus(stage=stage_dir, stage_dir=stage_dir, status="pending")
+            for stage_dir in ALL_STAGE_DIRS
+        ],
+    )
+
+
+def load_run_manifest(run_dir: Path) -> RunManifest:
+    manifest_path = run_dir / RUN_MANIFEST_FILENAME
+    return RunManifest.model_validate_json(manifest_path.read_text(encoding="utf-8"))
+
+
+def write_run_manifest(run_dir: Path, manifest: RunManifest) -> Path:
+    run_dir.mkdir(parents=True, exist_ok=True)
+    manifest_path = run_dir / RUN_MANIFEST_FILENAME
+    manifest_path.write_text(manifest.model_dump_json(indent=2), encoding="utf-8")
+    return manifest_path
+
+
+def ensure_run_manifest(*, runs_dir: Path, run_id: str, video_path: str) -> tuple[Path, RunManifest]:
+    run_dir = runs_dir / run_id
+    manifest_path = run_dir / RUN_MANIFEST_FILENAME
+    if manifest_path.exists():
+        manifest = load_run_manifest(run_dir)
+        if manifest.video_path != video_path:
+            raise ValueError(
+                f"Run manifest video_path mismatch for run_id={run_id}: "
+                f"{manifest.video_path} != {video_path}"
+            )
+        return run_dir, manifest
+
+    manifest = _build_default_manifest(run_id=run_id, video_path=video_path)
+    write_run_manifest(run_dir, manifest)
+    return run_dir, manifest
+
+
+def mark_stage_completed(manifest: RunManifest, *, stage_dir: str) -> RunManifest:
+    timestamp = _utc_now_z()
+    updated_stages: list[StageStatus] = []
+    for stage in manifest.stages:
+        if stage.stage == stage_dir:
+            updated_stages.append(
+                stage.model_copy(
+                    update={
+                        "status": "completed",
+                        "started_at": stage.started_at or timestamp,
+                        "completed_at": timestamp,
+                        "error_message": None,
+                    }
+                )
+            )
+        else:
+            updated_stages.append(stage)
+    return manifest.model_copy(update={"stages": updated_stages})
 
 
 class StageArtifacts:
@@ -77,11 +165,17 @@ def write_local_preprocessing_artifacts(
     report_title: str | None = None,
 ) -> Path:
     actual_run_id = run_id or generate_run_id(Path(result.video_path))
-    stage_dir = runs_dir / actual_run_id / LOCAL_PREPROCESSING_STAGE_DIR
+    run_dir, manifest = ensure_run_manifest(
+        runs_dir=runs_dir,
+        run_id=actual_run_id,
+        video_path=result.video_path,
+    )
+    stage_dir = run_dir / LOCAL_PREPROCESSING_STAGE_DIR
     artifacts = StageArtifacts(stage_dir)
     artifacts.write_output(result)
     artifacts.write_warnings(stage=LOCAL_PREPROCESSING_STAGE_DIR, warnings=list(warnings or []))
     artifacts.write_report(result, title=report_title, warnings=warnings)
+    write_run_manifest(run_dir, mark_stage_completed(manifest, stage_dir=LOCAL_PREPROCESSING_STAGE_DIR))
     return stage_dir
 
 
@@ -94,9 +188,15 @@ def write_full_video_asset_artifacts(
     report_title: str | None = None,
 ) -> Path:
     actual_run_id = run_id or generate_run_id(Path(result.local.video_path))
-    stage_dir = runs_dir / actual_run_id / FULL_VIDEO_ASSET_STAGE_DIR
+    run_dir, manifest = ensure_run_manifest(
+        runs_dir=runs_dir,
+        run_id=actual_run_id,
+        video_path=result.local.video_path,
+    )
+    stage_dir = run_dir / FULL_VIDEO_ASSET_STAGE_DIR
     artifacts = StageArtifacts(stage_dir)
     artifacts.write_output(result)
     artifacts.write_warnings(stage=FULL_VIDEO_ASSET_STAGE_DIR, warnings=list(warnings or []))
     artifacts.write_report(result, title=report_title, warnings=warnings)
+    write_run_manifest(run_dir, mark_stage_completed(manifest, stage_dir=FULL_VIDEO_ASSET_STAGE_DIR))
     return stage_dir

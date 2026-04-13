@@ -6,6 +6,8 @@ from pathlib import Path
 from v2t_prototype.artifacts import (
     FULL_VIDEO_ASSET_STAGE_DIR,
     LOCAL_PREPROCESSING_STAGE_DIR,
+    RUN_MANIFEST_FILENAME,
+    load_run_manifest,
     write_full_video_asset_artifacts,
     write_local_preprocessing_artifacts,
 )
@@ -72,6 +74,13 @@ def test_write_local_preprocessing_artifacts_writes_canonical_files(tmp_path: Pa
     assert warnings_payload["stage"] == LOCAL_PREPROCESSING_STAGE_DIR
     assert warnings_payload["warnings"][0]["code"] == "CUT_ENDS_BEFORE_VIDEO_DURATION"
     assert "Stage 01 Report" in (stage_dir / "report.html").read_text(encoding="utf-8")
+    manifest = load_run_manifest(tmp_path / "run_001")
+    stage_statuses = {stage.stage: stage for stage in manifest.stages}
+    assert (tmp_path / "run_001" / RUN_MANIFEST_FILENAME).exists()
+    assert manifest.run_id == "run_001"
+    assert manifest.video_path == "/tmp/sample_video.mp4"
+    assert stage_statuses[LOCAL_PREPROCESSING_STAGE_DIR].status == "completed"
+    assert stage_statuses[FULL_VIDEO_ASSET_STAGE_DIR].status == "pending"
 
 
 def test_write_full_video_asset_artifacts_writes_canonical_files(tmp_path: Path):
@@ -106,3 +115,29 @@ def test_write_full_video_asset_artifacts_writes_canonical_files(tmp_path: Path)
     assert warnings_payload["stage"] == FULL_VIDEO_ASSET_STAGE_DIR
     assert warnings_payload["warnings"][0]["code"] == "UPLOAD_RETRIED_ONCE"
     assert "Stage 02 Report" in (stage_dir / "report.html").read_text(encoding="utf-8")
+
+
+def test_manifest_tracks_stage_progress_across_stage_01_and_02(tmp_path: Path):
+    local_result = _sample_local_result()
+    asset_result = _sample_full_video_asset_result()
+
+    write_local_preprocessing_artifacts(
+        local_result,
+        runs_dir=tmp_path,
+        run_id="run_002",
+        warnings=[],
+    )
+    write_full_video_asset_artifacts(
+        asset_result,
+        runs_dir=tmp_path,
+        run_id="run_002",
+        warnings=[],
+    )
+
+    manifest = load_run_manifest(tmp_path / "run_002")
+    stage_statuses = {stage.stage: stage for stage in manifest.stages}
+
+    assert stage_statuses[LOCAL_PREPROCESSING_STAGE_DIR].status == "completed"
+    assert stage_statuses[FULL_VIDEO_ASSET_STAGE_DIR].status == "completed"
+    assert stage_statuses[LOCAL_PREPROCESSING_STAGE_DIR].completed_at is not None
+    assert stage_statuses[FULL_VIDEO_ASSET_STAGE_DIR].completed_at is not None

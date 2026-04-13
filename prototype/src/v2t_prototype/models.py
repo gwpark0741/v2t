@@ -10,6 +10,16 @@ InteractionType = Literal["hard_effect", "foley", "background", "electronic"]
 TrackType = Literal["sfx", "ambience"]
 DistanceProfile = Literal["near", "mid", "far"]
 WarningSeverity = Literal["error", "warning", "info"]
+StageName = Literal[
+    "stage_01_local_preprocessing",
+    "stage_02_full_video_asset",
+    "stage_03_agent_a",
+    "stage_04_segment_prep",
+    "stage_05_agent_b",
+    "stage_06_agent_c",
+    "stage_07_final",
+]
+StageExecutionStatus = Literal["pending", "running", "completed", "failed", "skipped"]
 
 
 class Interval(BaseModel):
@@ -95,6 +105,27 @@ class FullVideoAssetResult(BaseModel):
     video_url: str = Field(min_length=1)
     gemini_file_name: str = Field(min_length=1)
     upload_timestamp_utc: str = Field(min_length=1)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class StageStatus(BaseModel):
+    stage: StageName
+    stage_dir: str
+    status: StageExecutionStatus
+    started_at: str | None = None
+    completed_at: str | None = None
+    error_message: str | None = None
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class RunManifest(BaseModel):
+    run_id: str
+    video_path: str
+    created_at_utc: str
+    entry_stage: str | None = None
+    stages: List[StageStatus]
 
     model_config = ConfigDict(extra="forbid")
 
