@@ -8,7 +8,6 @@ from v2t_prototype.models import (
     AmbienceSource,
     Character,
     Cut,
-    CutEnrichment,
     EntityRegistry,
     Interval,
     KeyObject,
@@ -77,20 +76,6 @@ def _make_sample_runtime_output(preprocessing: PreprocessingResult) -> AgentARun
                 )
             ],
         ),
-        cut_enrichments=[
-            CutEnrichment(
-                cut_id="CUT_001",
-                camera_angle="wide",
-                transition_type="cut",
-                camera_notes="n/a",
-            ),
-            CutEnrichment(
-                cut_id="CUT_002",
-                camera_angle="close",
-                transition_type="cut",
-                camera_notes="follow-up",
-            ),
-        ],
     )
     return AgentARuntimeOutput(request=request, response=response, raw_response_text="{}")
 

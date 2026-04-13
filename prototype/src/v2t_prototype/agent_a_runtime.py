@@ -44,22 +44,15 @@ class AgentARuntimeOutput:
 
 
 def _build_agent_a_prompt(request: AgentARequest, prompt_header: str) -> str:
-    cut_lines = "\n".join(
-        f"- {cut.id}: {cut.start_time:.3f}s -> {cut.end_time:.3f}s"
-        for cut in request.cuts
-    )
     return (
         f"{prompt_header}\n\n"
         "Task:\n"
         "1) Build entity_registry with characters, key_objects, ambience_sources.\n"
-        "2) Provide exactly one cut_enrichment per cut_id from the authoritative list.\n"
-        "3) Keep all IDs deterministic and prefixed as char_/obj_/amb_.\n\n"
+        "2) Keep all IDs deterministic and prefixed as char_/obj_/amb_.\n\n"
         "Authoritative video metadata:\n"
         f"- fps: {request.video_metadata.fps}\n"
         f"- duration_seconds: {request.video_metadata.duration_seconds}\n"
-        f"- resolution: {request.video_metadata.width}x{request.video_metadata.height}\n\n"
-        "Authoritative cuts:\n"
-        f"{cut_lines}\n"
+        f"- resolution: {request.video_metadata.width}x{request.video_metadata.height}\n"
     )
 
 

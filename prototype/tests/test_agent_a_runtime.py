@@ -58,21 +58,7 @@ def _valid_agent_a_response_json() -> str:
                 ],
                 "key_objects": [],
                 "ambience_sources": [],
-            },
-            "cut_enrichments": [
-                {
-                    "cut_id": "CUT_001",
-                    "camera_angle": "medium shot",
-                    "transition_type": "hard cut",
-                    "camera_notes": "rally starts",
-                },
-                {
-                    "cut_id": "CUT_002",
-                    "camera_angle": "close up",
-                    "transition_type": "hard cut",
-                    "camera_notes": "impact and follow-through",
-                },
-            ],
+            }
         }
     )
 
@@ -154,8 +140,7 @@ def test_run_agent_a_runtime_raises_on_schema_mismatch():
     client = _make_mock_client(
         json.dumps(
             {
-                "entity_registry": {},
-                "cut_enrichments": "invalid-type",
+                "entity_registry": "invalid-type",
             }
         )
     )
@@ -170,19 +155,25 @@ def test_run_agent_a_runtime_raises_on_post_validation_failure():
         json.dumps(
             {
                 "entity_registry": {
-                    "characters": [],
+                    "characters": [
+                        {
+                            "id": "person_001",
+                            "label": "Player",
+                            "visual_description": "table tennis player",
+                            "entry_exit_intervals": [{"start_time": 0.0, "end_time": 10.0}],
+                            "audibility": "likely_audible",
+                        }
+                    ],
                     "key_objects": [],
                     "ambience_sources": [],
-                },
-                "cut_enrichments": [],
+                }
             }
         )
     )
 
     with pytest.raises(AgentAPostValidationError) as exc_info:
         run_agent_a_runtime(preprocessing=preprocessing, client=client)
-    assert "missing cut enrichment for CUT_001" in exc_info.value.issues
-    assert "missing cut enrichment for CUT_002" in exc_info.value.issues
+    assert "invalid character id prefix person_001" in exc_info.value.issues
 
 
 

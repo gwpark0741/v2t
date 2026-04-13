@@ -7,10 +7,7 @@ from v2t_prototype.models import (
     AgentARequest,
     AgentAResponse,
     Cut,
-    CutEnrichment,
     EntityRegistry,
-    FullVideoAssetResult,
-    LocalPreprocessingResult,
     PreprocessingResult,
     SegmentClip,
     SegmentPrepResult,
@@ -51,20 +48,6 @@ def _sample_agent_a_output() -> AgentARuntimeOutput:
     )
     response = AgentAResponse(
         entity_registry=EntityRegistry(),
-        cut_enrichments=[
-            CutEnrichment(
-                cut_id="CUT_001",
-                camera_angle="Wide shot",
-                transition_type="Hard cut",
-                camera_notes="Two fighters enter frame.",
-            ),
-            CutEnrichment(
-                cut_id="CUT_002",
-                camera_angle="Close shot",
-                transition_type="Hard cut",
-                camera_notes="Blade clash near camera.",
-            ),
-        ],
     )
     return AgentARuntimeOutput(
         request=request,
@@ -103,9 +86,9 @@ def test_build_stage_03_04_report_html_contains_pairwise_content():
 
     assert "Pairwise Review" in html
     assert "CUT_001" in html
-    assert "Wide shot" in html
     assert "https://example.com/cut001" in html
     assert "No segment clip available." in html
+    assert "Authoritative Cut" in html
 
 
 def test_write_stage_03_04_report_writes_file(tmp_path: Path):

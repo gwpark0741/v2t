@@ -46,33 +46,6 @@ def _render_entity_list(label: str, items: Iterable[BaseModel]) -> str:
     )
 
 
-def _render_cut_enrichments(enrichments: Iterable, force_empty: bool = False) -> str:
-    enrichment_list = list(enrichments)
-    if not enrichment_list and not force_empty:
-        return ""
-
-    rows = []
-    for enrichment in enrichment_list:
-        rows.append(
-            "<tr>"
-            f"<td>{escape(enrichment.cut_id)}</td>"
-            f"<td>{escape(enrichment.camera_angle)}</td>"
-            f"<td>{escape(enrichment.transition_type)}</td>"
-            f"<td>{escape(enrichment.camera_notes)}</td>"
-            "</tr>"
-        )
-    body = "".join(rows)
-    return (
-        "<div class='card'>"
-        "<h2>Cut Enrichments</h2>"
-        "<table>"
-        "<thead><tr><th>Cut</th><th>Camera</th><th>Transition</th><th>Notes</th></tr></thead>"
-        f"<tbody>{body}</tbody>"
-        "</table>"
-        "</div>"
-    )
-
-
 def _render_validation_summary(issues: list[str]) -> str:
     if not issues:
         return "<p>PASS - No validation issues detected.</p>"
@@ -323,7 +296,6 @@ def build_agent_a_report_html(
         <div class=\"label\">characters</div><div>{len(response.entity_registry.characters)}</div>
         <div class=\"label\">key_objects</div><div>{len(response.entity_registry.key_objects)}</div>
         <div class=\"label\">ambience_sources</div><div>{len(response.entity_registry.ambience_sources)}</div>
-        <div class=\"label\">cut_enrichments</div><div>{len(response.cut_enrichments)}</div>
         <div class=\"label\">total_entities</div><div>{total_entities}</div>
       </div>
     </div>
@@ -333,7 +305,6 @@ def build_agent_a_report_html(
       {_render_entity_list('Key Objects', response.entity_registry.key_objects)}
       {_render_entity_list('Ambience Sources', response.entity_registry.ambience_sources)}
     </div>
-    {_render_cut_enrichments(response.cut_enrichments, force_empty=True)}
     <div class=\"card\">
       <h2>Raw Gemini JSON Text</h2>
       {_render_json_block(runtime_output.raw_response_text)}

@@ -279,15 +279,6 @@ class AmbienceSource(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-class CutEnrichment(BaseModel):
-    cut_id: str
-    camera_angle: str
-    transition_type: str
-    camera_notes: str
-
-    model_config = ConfigDict(extra="forbid")
-
-
 class EntityRegistry(BaseModel):
     characters: List[Character] = Field(default_factory=list)
     key_objects: List[KeyObject] = Field(default_factory=list)
@@ -297,10 +288,9 @@ class EntityRegistry(BaseModel):
 
 
 class AgentAResponse(BaseModel):
-    """Agent A 출력 계약: 엔티티 레지스트리 + cut enrichment 목록."""
+    """Agent A 출력 계약: 전역 entity registry."""
 
     entity_registry: EntityRegistry
-    cut_enrichments: List[CutEnrichment]
 
     model_config = ConfigDict(extra="forbid")
 
