@@ -38,9 +38,13 @@ from .artifacts import (
     write_run_manifest,
     write_stage_failure_artifacts,
     write_full_video_asset_artifacts,
+    write_segment_prep_artifacts,
     write_local_preprocessing_artifacts,
 )
 from .full_video_asset_report import build_full_video_asset_report_html, write_full_video_asset_report
+from .segment_prep import run_segment_prep
+from .segment_prep_report import build_segment_prep_report_html, write_segment_prep_report
+from .stage_03_04_report import build_stage_03_04_report_html, write_stage_03_04_report
 from .models import (
     Action,
     AgentARequest,
@@ -52,6 +56,9 @@ from .models import (
     ContinuousEvent,
     EntityRegistry,
     FullVideoAssetResult,
+    SegmentClip,
+    SegmentPrepResult,
+    SkippedCut,
     InteractionType,
     KeyObject,
     LoadedStageBundle,
@@ -104,6 +111,9 @@ __all__ = [
     "FINAL_STAGE_DIR",
     "FULL_VIDEO_ASSET_STAGE_DIR",
     "FullVideoAssetResult",
+    "SegmentClip",
+    "SegmentPrepResult",
+    "SkippedCut",
     "InteractionType",
     "KeyObject",
     "LOCAL_PREPROCESSING_STAGE_DIR",
@@ -130,6 +140,8 @@ __all__ = [
     "WarningItem",
     "build_agent_a_request",
     "build_full_video_asset_report_html",
+    "build_segment_prep_report_html",
+    "build_stage_03_04_report_html",
     "validate_agent_a_response",
     "canonical_should_merge",
     "collect_local_preprocessing_warnings",
@@ -151,9 +163,13 @@ __all__ = [
     "require_completed_stage_output",
     "run_local_preprocessing",
     "run_preprocessing",
+    "run_segment_prep",
     "run_agent_a_runtime",
     "upload_video_file",
     "write_full_video_asset_artifacts",
+    "write_segment_prep_artifacts",
+    "write_segment_prep_report",
+    "write_stage_03_04_report",
     "write_full_video_asset_report",
     "write_local_preprocessing_artifacts",
     "write_run_manifest",
