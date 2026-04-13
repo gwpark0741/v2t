@@ -6,8 +6,12 @@ from v2t_prototype.agent_a_runtime import AgentARuntimeOutput
 from v2t_prototype.models import (
     AgentARequest,
     AgentAResponse,
+    AmbienceSource,
+    Character,
     Cut,
     EntityRegistry,
+    Interval,
+    KeyObject,
     PreprocessingResult,
     SegmentClip,
     SegmentPrepResult,
@@ -47,7 +51,37 @@ def _sample_agent_a_output() -> AgentARuntimeOutput:
         cuts=preprocessing.cuts,
     )
     response = AgentAResponse(
-        entity_registry=EntityRegistry(),
+        entity_registry=EntityRegistry(
+            characters=[
+                Character(
+                    id="char_001",
+                    label="Fighter A",
+                    visual_description="Armored fighter",
+                    entry_exit_intervals=[Interval(start_time=0.0, end_time=10.0)],
+                    audibility="likely_audible",
+                )
+            ],
+            key_objects=[
+                KeyObject(
+                    id="obj_001",
+                    label="Sword",
+                    visual_description="Metal sword",
+                    material="steel",
+                    surface="polished",
+                    has_mechanism=False,
+                    audibility="audible",
+                )
+            ],
+            ambience_sources=[
+                AmbienceSource(
+                    id="amb_001",
+                    label="Training yard",
+                    space_description="Open outdoor arena",
+                    distance_profile="mid",
+                    tonal_quality="dry",
+                )
+            ],
+        ),
     )
     return AgentARuntimeOutput(
         request=request,
@@ -89,6 +123,10 @@ def test_build_stage_03_04_report_html_contains_pairwise_content():
     assert "https://example.com/cut001" in html
     assert "No segment clip available." in html
     assert "Authoritative Cut" in html
+    assert "Agent A Entity Registry" in html
+    assert "Fighter A" in html
+    assert "Sword" in html
+    assert "Training yard" in html
 
 
 def test_write_stage_03_04_report_writes_file(tmp_path: Path):

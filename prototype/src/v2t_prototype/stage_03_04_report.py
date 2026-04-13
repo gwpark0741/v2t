@@ -2,6 +2,10 @@ from __future__ import annotations
 
 from html import escape
 from pathlib import Path
+from typing import Iterable
+
+from pydantic import BaseModel
+
 from .agent_a import validate_agent_a_response
 from .agent_a_runtime import AgentARuntimeOutput
 from .models import PreprocessingResult, SegmentPrepResult
@@ -13,6 +17,31 @@ def _format_seconds(value: float) -> str:
 
 def _as_file_uri(path: str) -> str:
     return Path(path).expanduser().resolve().as_uri()
+
+
+def _render_entity_list(label: str, items: Iterable[BaseModel]) -> str:
+    item_list = list(items)
+    if not item_list:
+        return (
+            "<div class='entity-section'>"
+            f"<h3>{escape(label)}</h3><p class='muted'>No entries.</p>"
+            "</div>"
+        )
+
+    cards = []
+    for item in item_list:
+        fields = "<br/>".join(
+            f"{escape(name)}: {escape(str(getattr(item, name)))}"
+            for name in type(item).model_fields
+        )
+        cards.append(f"<div class='entity-card'><p>{fields}</p></div>")
+
+    return (
+        "<div class='entity-section'>"
+        f"<h3>{escape(label)}</h3>"
+        f"{''.join(cards)}"
+        "</div>"
+    )
 
 
 def build_stage_03_04_report_html(
@@ -131,6 +160,17 @@ def build_stage_03_04_report_html(
       border-radius: 8px;
       padding: 10px;
     }}
+    .entity-section {{
+      margin-bottom: 12px;
+    }}
+    .entity-card {{
+      border: 1px solid #d8dcea;
+      border-radius: 8px;
+      padding: 8px;
+      margin-bottom: 8px;
+      background: #fcfcfd;
+      font-size: 13px;
+    }}
     .muted {{
       color: #5e6575;
     }}
@@ -150,6 +190,9 @@ def build_stage_03_04_report_html(
         <div class="label">Duration</div><div>{metadata.duration_seconds:.3f}s</div>
         <div class="label">Resolution</div><div>{metadata.width} x {metadata.height}</div>
         <div class="label">Cut Count</div><div>{len(preprocessing.cuts)}</div>
+        <div class="label">Agent A Characters</div><div>{len(agent_a_output.response.entity_registry.characters)}</div>
+        <div class="label">Agent A Key Objects</div><div>{len(agent_a_output.response.entity_registry.key_objects)}</div>
+        <div class="label">Agent A Ambience Sources</div><div>{len(agent_a_output.response.entity_registry.ambience_sources)}</div>
         <div class="label">Segment Clips</div><div>{len(segment_prep.clips)}</div>
         <div class="label">Skipped Cuts</div><div>{len(segment_prep.skipped_cuts)}</div>
       </div>
@@ -157,6 +200,12 @@ def build_stage_03_04_report_html(
     <section class="card">
       <h2>Agent A Validation</h2>
       {validation_block}
+    </section>
+    <section class="card">
+      <h2>Agent A Entity Registry</h2>
+      {_render_entity_list('Characters', agent_a_output.response.entity_registry.characters)}
+      {_render_entity_list('Key Objects', agent_a_output.response.entity_registry.key_objects)}
+      {_render_entity_list('Ambience Sources', agent_a_output.response.entity_registry.ambience_sources)}
     </section>
     <section class="card">
       <h2>Pairwise Cut Review</h2>
