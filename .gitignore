@@ -20,6 +20,7 @@ __pycache__/
 prototype/.venv/
 prototype/.pytest_cache/
 prototype/reports/
+prototype/runs/
 
 # local planning / experiment materials kept out of GitHub
 .vscode/
