@@ -111,6 +111,48 @@ class FullVideoAssetResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class SegmentClip(BaseModel):
+    cut_id: str
+    local_clip_path: str = Field(min_length=1)
+    clip_video_url: str = Field(min_length=1)
+    clip_gemini_file_name: str = Field(min_length=1)
+    clip_video_mime_type: str = Field(min_length=1)
+    padded_start_time: float = Field(ge=0.0)
+    padded_end_time: float = Field(ge=0.0)
+    actual_padding_start: float = Field(ge=0.0)
+    actual_padding_end: float = Field(ge=0.0)
+
+    model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="after")
+    def check_order(self) -> "SegmentClip":
+        if self.padded_end_time <= self.padded_start_time:
+            raise ValueError("padded_end_time must be > padded_start_time")
+        return self
+
+
+class SkippedCut(BaseModel):
+    cut_id: str
+    reason: str = Field(min_length=1)
+    error_detail: str = Field(min_length=1)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class SegmentPrepResult(BaseModel):
+    clips: List[SegmentClip]
+    skipped_cuts: List[SkippedCut] = Field(default_factory=list)
+    warnings: List["WarningItem"] = Field(default_factory=list)
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("clips")
+    def non_empty_clips(cls, value: List[SegmentClip]) -> List[SegmentClip]:
+        if not value:
+            raise ValueError("No clips were successfully prepared")
+        return value
+
+
 class StageStatus(BaseModel):
     stage: StageName
     stage_dir: str

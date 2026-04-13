@@ -9,6 +9,7 @@ from v2t_prototype.artifacts import (
     FULL_VIDEO_ASSET_STAGE_DIR,
     LOCAL_PREPROCESSING_STAGE_DIR,
     RUN_MANIFEST_FILENAME,
+    SEGMENT_PREP_STAGE_DIR,
     StageArtifactLoadError,
     ensure_run_manifest,
     get_stage_dir,
@@ -19,11 +20,15 @@ from v2t_prototype.artifacts import (
     write_stage_failure_artifacts,
     write_full_video_asset_artifacts,
     write_local_preprocessing_artifacts,
+    write_segment_prep_artifacts,
 )
 from v2t_prototype.models import (
     Cut,
     FullVideoAssetResult,
     LocalPreprocessingResult,
+    SegmentClip,
+    SegmentPrepResult,
+    SkippedCut,
     StageErrorRecord,
     VideoMetadata,
     WarningItem,
@@ -55,6 +60,39 @@ def _sample_full_video_asset_result() -> FullVideoAssetResult:
         video_url="https://generativelanguage.googleapis.com/v1beta/files/abc123",
         gemini_file_name="files/abc123",
         upload_timestamp_utc="2026-04-13T07:30:00Z",
+    )
+
+
+def _sample_segment_prep_result() -> SegmentPrepResult:
+    return SegmentPrepResult(
+        clips=[
+            SegmentClip(
+                cut_id="CUT_001",
+                local_clip_path="/tmp/CUT_001.mp4",
+                clip_video_url="https://generativelanguage.googleapis.com/v1beta/files/cut001",
+                clip_gemini_file_name="files/cut001",
+                clip_video_mime_type="video/mp4",
+                padded_start_time=0.0,
+                padded_end_time=5.0,
+                actual_padding_start=0.0,
+                actual_padding_end=0.0,
+            )
+        ],
+        skipped_cuts=[
+            SkippedCut(
+                cut_id="CUT_002",
+                reason="FFMPEG_FAILURE",
+                error_detail="ffmpeg failed",
+            )
+        ],
+        warnings=[
+            WarningItem(
+                code="SEGMENT_PREP_FFMPEG_FAILURE",
+                severity="warning",
+                message="Clip extraction failed for one cut.",
+                context={"cut_id": "CUT_002"},
+            )
+        ],
     )
 
 
@@ -131,6 +169,36 @@ def test_write_full_video_asset_artifacts_writes_canonical_files(tmp_path: Path)
     assert warnings_payload["stage"] == FULL_VIDEO_ASSET_STAGE_DIR
     assert warnings_payload["warnings"][0]["code"] == "UPLOAD_RETRIED_ONCE"
     assert "Stage 02 Report" in (stage_dir / "report.html").read_text(encoding="utf-8")
+
+
+def test_write_segment_prep_artifacts_writes_canonical_files(tmp_path: Path):
+    result = _sample_segment_prep_result()
+
+    stage_dir = write_segment_prep_artifacts(
+        result,
+        runs_dir=tmp_path,
+        run_id="run_segment_001",
+        video_path="/tmp/sample_video.mp4",
+        report_title="Stage 04 Report",
+    )
+
+    assert stage_dir == tmp_path / "run_segment_001" / SEGMENT_PREP_STAGE_DIR
+    assert (stage_dir / "output.json").exists()
+    assert (stage_dir / "warnings.json").exists()
+    assert (stage_dir / "report.html").exists()
+
+    output_payload = json.loads((stage_dir / "output.json").read_text(encoding="utf-8"))
+    warnings_payload = json.loads((stage_dir / "warnings.json").read_text(encoding="utf-8"))
+
+    assert output_payload["clips"][0]["cut_id"] == "CUT_001"
+    assert output_payload["skipped_cuts"][0]["cut_id"] == "CUT_002"
+    assert warnings_payload["stage"] == SEGMENT_PREP_STAGE_DIR
+    assert warnings_payload["warnings"][0]["code"] == "SEGMENT_PREP_FFMPEG_FAILURE"
+    assert "Stage 04 Report" in (stage_dir / "report.html").read_text(encoding="utf-8")
+
+    manifest = load_run_manifest(tmp_path / "run_segment_001")
+    stage_statuses = {stage.stage: stage for stage in manifest.stages}
+    assert stage_statuses[SEGMENT_PREP_STAGE_DIR].status == "completed"
 
 
 def test_manifest_tracks_stage_progress_across_stage_01_and_02(tmp_path: Path):

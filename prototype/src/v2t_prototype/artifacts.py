@@ -19,9 +19,11 @@ from .models import (
     StageWarningsRecord,
     StageStatus,
     StageName,
+    SegmentPrepResult,
     WarningItem,
 )
 from .preprocessing_report import write_preprocessing_report
+from .segment_prep_report import write_segment_prep_report
 
 
 LOCAL_PREPROCESSING_STAGE_DIR = "stage_01_local_preprocessing"
@@ -276,10 +278,11 @@ class StageArtifacts:
 
     def write_report(
         self,
-        result: LocalPreprocessingResult | FullVideoAssetResult,
+        result: LocalPreprocessingResult | FullVideoAssetResult | SegmentPrepResult,
         *,
         title: str | None = None,
         warnings: Sequence[WarningItem] | None = None,
+        source_video_path: str | None = None,
     ) -> Path:
         report_path = self.stage_dir / "report.html"
         if isinstance(result, LocalPreprocessingResult):
@@ -288,6 +291,15 @@ class StageArtifacts:
                 report_path,
                 title=title,
                 warnings=warnings,
+            )
+        if isinstance(result, SegmentPrepResult):
+            if source_video_path is None:
+                raise ValueError("source_video_path is required for SegmentPrepResult reports")
+            return write_segment_prep_report(
+                result,
+                report_path,
+                source_video_path=source_video_path,
+                title=title,
             )
         return write_full_video_asset_report(
             result,
@@ -340,6 +352,38 @@ def write_full_video_asset_artifacts(
     artifacts.write_warnings(stage=FULL_VIDEO_ASSET_STAGE_DIR, warnings=list(warnings or []))
     artifacts.write_report(result, title=report_title, warnings=warnings)
     write_run_manifest(run_dir, mark_stage_completed(manifest, stage_dir=FULL_VIDEO_ASSET_STAGE_DIR))
+    return stage_dir
+
+
+def write_segment_prep_artifacts(
+    result: SegmentPrepResult,
+    *,
+    runs_dir: Path = Path("runs"),
+    run_id: str | None = None,
+    video_path: str,
+    warnings: Sequence[WarningItem] | None = None,
+    report_title: str | None = None,
+) -> Path:
+    actual_run_id = run_id or generate_run_id(Path(video_path))
+    run_dir, manifest = ensure_run_manifest(
+        runs_dir=runs_dir,
+        run_id=actual_run_id,
+        video_path=video_path,
+    )
+    stage_dir = run_dir / SEGMENT_PREP_STAGE_DIR
+    artifacts = StageArtifacts(stage_dir)
+    artifacts.write_output(result)
+    artifacts.write_warnings(
+        stage=SEGMENT_PREP_STAGE_DIR,
+        warnings=list(warnings or result.warnings),
+    )
+    artifacts.write_report(
+        result,
+        title=report_title,
+        warnings=warnings,
+        source_video_path=video_path,
+    )
+    write_run_manifest(run_dir, mark_stage_completed(manifest, stage_dir=SEGMENT_PREP_STAGE_DIR))
     return stage_dir
 
 

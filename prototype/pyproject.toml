@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "google-genai>=1.0,<2",
+    "imageio-ffmpeg>=0.6.0",
     "pydantic>=2.6,<3",
     "pytest>=8.0",
     "scenedetect[opencv]>=0.6.7.1",
