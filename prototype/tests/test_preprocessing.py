@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 from google.genai import types as genai_types
 
-from v2t_prototype.models import Cut, LocalPreprocessingResult, PreprocessingResult, VideoMetadata
+from v2t_prototype.models import Cut, FullVideoAssetResult, LocalPreprocessingResult, PreprocessingResult, VideoMetadata
 from v2t_prototype.preprocessing import (
     collect_local_preprocessing_warnings,
     detect_cuts,
@@ -190,15 +190,18 @@ def test_prepare_full_video_asset_uploads_and_returns_url_and_mime(tmp_path: Pat
     with patch("v2t_prototype.preprocessing.upload_video_file", return_value=uploaded_file) as upload_mock, patch(
         "v2t_prototype.preprocessing.wait_for_uploaded_file_active", return_value=uploaded_file
     ) as wait_mock:
-        video_url, video_mime_type = prepare_full_video_asset(
+        result = prepare_full_video_asset(
             local=local,
             client=client,
         )
 
     upload_mock.assert_called_once_with(client, video_path)
     wait_mock.assert_called_once_with(client, uploaded_file)
-    assert video_url == "gs://bucket/preprocessing_asset.mp4"
-    assert video_mime_type == "video/mp4"
+    assert isinstance(result, FullVideoAssetResult)
+    assert result.video_url == "gs://bucket/preprocessing_asset.mp4"
+    assert result.local == local
+    assert result.gemini_file_name == "files/preprocessing_asset"
+    assert result.upload_timestamp_utc.endswith("Z")
 
 
 def test_collect_local_preprocessing_warnings_reports_cut_gap():

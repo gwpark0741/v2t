@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 from mimetypes import guess_type
+from datetime import datetime, timezone
 
 import cv2
 from google import genai
@@ -11,11 +12,12 @@ from scenedetect.detectors import AdaptiveDetector
 
 from .gemini_client import (
     create_gemini_client,
+    get_uploaded_file_name,
     get_uploaded_video_url,
     upload_video_file,
     wait_for_uploaded_file_active,
 )
-from .models import Cut, LocalPreprocessingResult, PreprocessingResult, VideoMetadata, WarningItem
+from .models import Cut, FullVideoAssetResult, LocalPreprocessingResult, PreprocessingResult, VideoMetadata, WarningItem
 
 
 def extract_video_metadata(video_path: Path) -> VideoMetadata:
@@ -154,15 +156,15 @@ def run_preprocessing(
         window_width=window_width,
         min_content_val=min_content_val,
     )
-    video_url, video_mime_type = prepare_full_video_asset(
+    full_video_asset = prepare_full_video_asset(
         local=local,
         client=client,
     )
     return PreprocessingResult(
         video_metadata=local.video_metadata,
         cuts=local.cuts,
-        video_url=video_url,
-        video_mime_type=video_mime_type,
+        video_url=full_video_asset.video_url,
+        video_mime_type=local.video_mime_type,
     )
 
 
@@ -198,14 +200,23 @@ def prepare_full_video_asset(
     local: LocalPreprocessingResult,
     *,
     client: Optional[genai.Client] = None,
-) -> tuple[str, str]:
-    """전체 영상을 업로드하고 (video_url, video_mime_type)을 반환합니다."""
+) -> FullVideoAssetResult:
+    """전체 영상을 업로드하고 canonical Stage 02 결과를 반환합니다."""
     runtime_client = client or create_gemini_client()
     video_path = Path(local.video_path)
     uploaded_file = upload_video_file(runtime_client, video_path)
     uploaded_file = wait_for_uploaded_file_active(runtime_client, uploaded_file)
     video_url = get_uploaded_video_url(uploaded_file)
-    return video_url, local.video_mime_type
+    gemini_file_name = get_uploaded_file_name(uploaded_file)
+    upload_timestamp_utc = (
+        datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    )
+    return FullVideoAssetResult(
+        local=local,
+        video_url=video_url,
+        gemini_file_name=gemini_file_name,
+        upload_timestamp_utc=upload_timestamp_utc,
+    )
 
 
 def collect_local_preprocessing_warnings(

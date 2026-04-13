@@ -88,6 +88,17 @@ class LocalPreprocessingResult(BaseModel):
         return value
 
 
+class FullVideoAssetResult(BaseModel):
+    """Stage 02 출력 계약: 업로드된 전체 영상 자산 정보."""
+
+    local: LocalPreprocessingResult
+    video_url: str = Field(min_length=1)
+    gemini_file_name: str = Field(min_length=1)
+    upload_timestamp_utc: str = Field(min_length=1)
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class AgentARequest(BaseModel):
     """Agent A 호출에 전달되는 최소 입력 계약."""
 

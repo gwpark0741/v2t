@@ -9,11 +9,13 @@ from typing import Sequence
 
 from pydantic import BaseModel
 
-from .models import LocalPreprocessingResult, WarningItem
+from .full_video_asset_report import write_full_video_asset_report
+from .models import FullVideoAssetResult, LocalPreprocessingResult, WarningItem
 from .preprocessing_report import write_preprocessing_report
 
 
 LOCAL_PREPROCESSING_STAGE_DIR = "stage_01_local_preprocessing"
+FULL_VIDEO_ASSET_STAGE_DIR = "stage_02_full_video_asset"
 
 
 def generate_run_id(video_path: Path) -> str:
@@ -45,14 +47,22 @@ class StageArtifacts:
 
     def write_report(
         self,
-        result: LocalPreprocessingResult,
+        result: LocalPreprocessingResult | FullVideoAssetResult,
         *,
         title: str | None = None,
         warnings: Sequence[WarningItem] | None = None,
     ) -> Path:
-        return write_preprocessing_report(
+        report_path = self.stage_dir / "report.html"
+        if isinstance(result, LocalPreprocessingResult):
+            return write_preprocessing_report(
+                result,
+                report_path,
+                title=title,
+                warnings=warnings,
+            )
+        return write_full_video_asset_report(
             result,
-            self.stage_dir / "report.html",
+            report_path,
             title=title,
             warnings=warnings,
         )
@@ -71,5 +81,22 @@ def write_local_preprocessing_artifacts(
     artifacts = StageArtifacts(stage_dir)
     artifacts.write_output(result)
     artifacts.write_warnings(stage=LOCAL_PREPROCESSING_STAGE_DIR, warnings=list(warnings or []))
+    artifacts.write_report(result, title=report_title, warnings=warnings)
+    return stage_dir
+
+
+def write_full_video_asset_artifacts(
+    result: FullVideoAssetResult,
+    *,
+    runs_dir: Path = Path("runs"),
+    run_id: str | None = None,
+    warnings: Sequence[WarningItem] | None = None,
+    report_title: str | None = None,
+) -> Path:
+    actual_run_id = run_id or generate_run_id(Path(result.local.video_path))
+    stage_dir = runs_dir / actual_run_id / FULL_VIDEO_ASSET_STAGE_DIR
+    artifacts = StageArtifacts(stage_dir)
+    artifacts.write_output(result)
+    artifacts.write_warnings(stage=FULL_VIDEO_ASSET_STAGE_DIR, warnings=list(warnings or []))
     artifacts.write_report(result, title=report_title, warnings=warnings)
     return stage_dir

@@ -3,8 +3,13 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from v2t_prototype.artifacts import LOCAL_PREPROCESSING_STAGE_DIR, write_local_preprocessing_artifacts
-from v2t_prototype.models import Cut, LocalPreprocessingResult, VideoMetadata, WarningItem
+from v2t_prototype.artifacts import (
+    FULL_VIDEO_ASSET_STAGE_DIR,
+    LOCAL_PREPROCESSING_STAGE_DIR,
+    write_full_video_asset_artifacts,
+    write_local_preprocessing_artifacts,
+)
+from v2t_prototype.models import Cut, FullVideoAssetResult, LocalPreprocessingResult, VideoMetadata, WarningItem
 
 
 def _sample_local_result() -> LocalPreprocessingResult:
@@ -23,6 +28,15 @@ def _sample_local_result() -> LocalPreprocessingResult:
         ],
         video_path="/tmp/sample_video.mp4",
         video_mime_type="video/mp4",
+    )
+
+
+def _sample_full_video_asset_result() -> FullVideoAssetResult:
+    return FullVideoAssetResult(
+        local=_sample_local_result(),
+        video_url="https://generativelanguage.googleapis.com/v1beta/files/abc123",
+        gemini_file_name="files/abc123",
+        upload_timestamp_utc="2026-04-13T07:30:00Z",
     )
 
 
@@ -58,3 +72,37 @@ def test_write_local_preprocessing_artifacts_writes_canonical_files(tmp_path: Pa
     assert warnings_payload["stage"] == LOCAL_PREPROCESSING_STAGE_DIR
     assert warnings_payload["warnings"][0]["code"] == "CUT_ENDS_BEFORE_VIDEO_DURATION"
     assert "Stage 01 Report" in (stage_dir / "report.html").read_text(encoding="utf-8")
+
+
+def test_write_full_video_asset_artifacts_writes_canonical_files(tmp_path: Path):
+    result = _sample_full_video_asset_result()
+    warnings = [
+        WarningItem(
+            code="UPLOAD_RETRIED_ONCE",
+            severity="warning",
+            message="Upload succeeded after one retry.",
+            context={"attempt_count": 2},
+        )
+    ]
+
+    stage_dir = write_full_video_asset_artifacts(
+        result,
+        runs_dir=tmp_path,
+        run_id="run_001",
+        warnings=warnings,
+        report_title="Stage 02 Report",
+    )
+
+    assert stage_dir == tmp_path / "run_001" / FULL_VIDEO_ASSET_STAGE_DIR
+    assert (stage_dir / "output.json").exists()
+    assert (stage_dir / "warnings.json").exists()
+    assert (stage_dir / "report.html").exists()
+
+    output_payload = json.loads((stage_dir / "output.json").read_text(encoding="utf-8"))
+    warnings_payload = json.loads((stage_dir / "warnings.json").read_text(encoding="utf-8"))
+
+    assert output_payload["video_url"] == "https://generativelanguage.googleapis.com/v1beta/files/abc123"
+    assert output_payload["gemini_file_name"] == "files/abc123"
+    assert warnings_payload["stage"] == FULL_VIDEO_ASSET_STAGE_DIR
+    assert warnings_payload["warnings"][0]["code"] == "UPLOAD_RETRIED_ONCE"
+    assert "Stage 02 Report" in (stage_dir / "report.html").read_text(encoding="utf-8")

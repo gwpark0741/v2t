@@ -81,3 +81,13 @@ def get_uploaded_video_url(uploaded_file: types.File) -> str:
     if not uri:
         raise ValueError("Uploaded file did not include a uri")
     return uri
+
+
+def get_uploaded_file_name(uploaded_file: types.File) -> str:
+    """
+    Read the uploaded Gemini file name used for polling and traceability.
+    """
+    name = uploaded_file.name
+    if not name:
+        raise ValueError("Uploaded file did not include a name")
+    return name
