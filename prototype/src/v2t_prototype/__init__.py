@@ -14,6 +14,12 @@ from .gemini_client import (
     get_uploaded_video_url,
     upload_video_file,
 )
+from .artifacts import (
+    LOCAL_PREPROCESSING_STAGE_DIR,
+    StageArtifacts,
+    generate_run_id,
+    write_local_preprocessing_artifacts,
+)
 from .models import (
     Action,
     AgentARequest,
@@ -26,6 +32,7 @@ from .models import (
     EntityRegistry,
     InteractionType,
     KeyObject,
+    LocalPreprocessingResult,
     OnsetEvent,
     PipelineResult,
     PreprocessingResult,
@@ -38,7 +45,14 @@ from .models import (
     WarningItem,
 )
 from .merge_rules import canonical_should_merge, default_surface_compatibility
-from .preprocessing import detect_cuts, extract_video_metadata, run_preprocessing
+from .preprocessing import (
+    collect_local_preprocessing_warnings,
+    detect_cuts,
+    extract_video_metadata,
+    prepare_full_video_asset,
+    run_local_preprocessing,
+    run_preprocessing,
+)
 from .preprocessing_report import build_preprocessing_report_html, write_preprocessing_report
 from .agent_a_report import build_agent_a_report_html, write_agent_a_report
 from .synthesizer import synthesize_tracks
@@ -59,9 +73,12 @@ __all__ = [
     "EntityRegistry",
     "InteractionType",
     "KeyObject",
+    "LOCAL_PREPROCESSING_STAGE_DIR",
+    "LocalPreprocessingResult",
     "OnsetEvent",
     "PipelineResult",
     "PreprocessingResult",
+    "StageArtifacts",
     "Track",
     "TrackManifest",
     "TrackType",
@@ -72,15 +89,20 @@ __all__ = [
     "build_agent_a_request",
     "validate_agent_a_response",
     "canonical_should_merge",
+    "collect_local_preprocessing_warnings",
     "detect_cuts",
     "create_gemini_client",
     "DEFAULT_AGENT_A_MODEL",
     "default_surface_compatibility",
     "extract_video_metadata",
+    "generate_run_id",
     "get_uploaded_video_url",
+    "prepare_full_video_asset",
+    "run_local_preprocessing",
     "run_preprocessing",
     "run_agent_a_runtime",
     "upload_video_file",
+    "write_local_preprocessing_artifacts",
     "build_preprocessing_report_html",
     "write_preprocessing_report",
     "build_agent_a_report_html",

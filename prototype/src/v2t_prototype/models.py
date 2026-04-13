@@ -71,6 +71,23 @@ class PreprocessingResult(BaseModel):
         return value
 
 
+class LocalPreprocessingResult(BaseModel):
+    """Stage 01 출력 계약: 로컬 분석 결과만 포함합니다."""
+
+    video_metadata: VideoMetadata
+    cuts: List[Cut]
+    video_path: str
+    video_mime_type: str = Field(min_length=1)
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("cuts")
+    def non_empty_cuts(cls, value: List[Cut]) -> List[Cut]:
+        if not value:
+            raise ValueError("LocalPreprocessingResult must contain at least one cut")
+        return value
+
+
 class AgentARequest(BaseModel):
     """Agent A 호출에 전달되는 최소 입력 계약."""
 

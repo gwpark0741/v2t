@@ -9,8 +9,9 @@ import numpy as np
 import pytest
 from google.genai import types as genai_types
 
-from v2t_prototype.models import Cut, PreprocessingResult, VideoMetadata
+from v2t_prototype.models import Cut, LocalPreprocessingResult, PreprocessingResult, VideoMetadata
 from v2t_prototype.preprocessing import (
+    collect_local_preprocessing_warnings,
     detect_cuts,
     prepare_full_video_asset,
     run_local_preprocessing,
@@ -147,7 +148,7 @@ def test_run_local_preprocessing_returns_metadata_and_cuts(tmp_path: Path):
     video_path = tmp_path / "synthetic_local_preprocessing.avi"
     fps, frame_count = _write_synthetic_video(video_path)
 
-    metadata, cuts = run_local_preprocessing(
+    result = run_local_preprocessing(
         video_path,
         adaptive_threshold=1.0,
         min_scene_len=5,
@@ -155,22 +156,29 @@ def test_run_local_preprocessing_returns_metadata_and_cuts(tmp_path: Path):
         min_content_val=5.0,
     )
 
-    assert metadata.frame_count == frame_count
-    assert metadata.fps == pytest.approx(fps, abs=0.1)
-    assert cuts
-    assert cuts[0].start_time == 0.0
+    assert isinstance(result, LocalPreprocessingResult)
+    assert result.video_metadata.frame_count == frame_count
+    assert result.video_metadata.fps == pytest.approx(fps, abs=0.1)
+    assert result.cuts
+    assert result.cuts[0].start_time == 0.0
+    assert result.video_mime_type == "video/x-msvideo"
 
 
 def test_prepare_full_video_asset_uploads_and_returns_url_and_mime(tmp_path: Path):
     video_path = tmp_path / "synthetic_asset.avi"
     _write_synthetic_video(video_path)
-    metadata = VideoMetadata(
+    local = LocalPreprocessingResult(
+        video_metadata=VideoMetadata(
+            video_path=str(video_path),
+            fps=10.0,
+            frame_count=45,
+            duration_seconds=4.5,
+            width=96,
+            height=64,
+        ),
+        cuts=[Cut(id="CUT_001", start_time=0.0, end_time=4.5)],
         video_path=str(video_path),
-        fps=10.0,
-        frame_count=45,
-        duration_seconds=4.5,
-        width=96,
-        height=64,
+        video_mime_type="video/mp4",
     )
     client = Mock()
     uploaded_file = SimpleNamespace(
@@ -181,10 +189,9 @@ def test_prepare_full_video_asset_uploads_and_returns_url_and_mime(tmp_path: Pat
 
     with patch("v2t_prototype.preprocessing.upload_video_file", return_value=uploaded_file) as upload_mock, patch(
         "v2t_prototype.preprocessing.wait_for_uploaded_file_active", return_value=uploaded_file
-    ) as wait_mock, patch("v2t_prototype.preprocessing.guess_type", return_value=("video/mp4", None)):
+    ) as wait_mock:
         video_url, video_mime_type = prepare_full_video_asset(
-            video_path=video_path,
-            metadata=metadata,
+            local=local,
             client=client,
         )
 
@@ -192,3 +199,26 @@ def test_prepare_full_video_asset_uploads_and_returns_url_and_mime(tmp_path: Pat
     wait_mock.assert_called_once_with(client, uploaded_file)
     assert video_url == "gs://bucket/preprocessing_asset.mp4"
     assert video_mime_type == "video/mp4"
+
+
+def test_collect_local_preprocessing_warnings_reports_cut_gap():
+    result = LocalPreprocessingResult(
+        video_metadata=VideoMetadata(
+            video_path="/tmp/sample.mp4",
+            fps=24.0,
+            frame_count=240,
+            duration_seconds=10.0,
+            width=1920,
+            height=1080,
+        ),
+        cuts=[
+            Cut(id="CUT_001", start_time=0.0, end_time=4.0),
+            Cut(id="CUT_002", start_time=4.2, end_time=10.0),
+        ],
+        video_path="/tmp/sample.mp4",
+        video_mime_type="video/mp4",
+    )
+
+    warnings = collect_local_preprocessing_warnings(result)
+
+    assert [item.code for item in warnings] == ["CUT_GAP_DETECTED"]
