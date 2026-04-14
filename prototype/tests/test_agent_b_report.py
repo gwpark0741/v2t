@@ -85,7 +85,7 @@ def _result() -> AgentBAllCutsResult:
         cut_outputs=[
             AgentBCutOutput(
                 cut_id="CUT_001",
-                raw_response_text='{"actions":[{"action_id":"act_CUT_001_001"}]}',
+                raw_response_text='{"actions":[{"action_id":"raw_only_marker"}]}',
                 actions=[
                     Action.model_validate(
                         {
@@ -109,7 +109,7 @@ def _result() -> AgentBAllCutsResult:
                         }
                     )
                 ],
-                validation_issues=[],
+                validation_issues=["AGENT_B_UNKNOWN_SOURCE_ID"],
                 model="gemini-2.5-pro",
             )
         ],
@@ -139,6 +139,8 @@ def test_build_agent_b_report_html_contains_key_fields():
     assert "CUT_003" in html
     assert "CUT_004" in html
     assert "AGENT_B_CUT_RUNTIME_FAILURE" in html
+    assert "AGENT_B_UNKNOWN_SOURCE_ID" in html
+    assert "raw_only_marker" in html
     assert "continuous 0.500s - 1.500s" in html
 
 
