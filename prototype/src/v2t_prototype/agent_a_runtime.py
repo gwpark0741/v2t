@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Optional
 
 from google import genai
 from google.genai import types
-from pydantic import ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from .agent_a import build_agent_a_request, validate_agent_a_response
 from .gemini_client import DEFAULT_AGENT_A_MODEL, create_gemini_client
@@ -36,11 +35,12 @@ class AgentAPostValidationError(AgentARuntimeError):
         super().__init__("Agent A response failed post-validation: " + "; ".join(issues))
 
 
-@dataclass(frozen=True)
-class AgentARuntimeOutput:
+class AgentARuntimeOutput(BaseModel):
     request: AgentARequest
     response: AgentAResponse
     raw_response_text: str
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
 
 def _build_agent_a_prompt(request: AgentARequest, prompt_header: str) -> str:

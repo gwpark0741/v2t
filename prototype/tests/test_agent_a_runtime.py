@@ -115,6 +115,7 @@ def test_run_agent_a_runtime_success_with_structured_output_config():
 
     assert output.request.video_url == "gs://bucket/sample.mp4"
     assert output.response.entity_registry.characters[0].id == "char_001"
+    assert json.loads(output.model_dump_json())["request"]["video_url"] == "gs://bucket/sample.mp4"
     client.files.upload.assert_not_called()
     client.files.get.assert_not_called()
     part_from_uri.assert_called_once_with(
