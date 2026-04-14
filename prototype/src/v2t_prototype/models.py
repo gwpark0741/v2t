@@ -184,6 +184,17 @@ class StageErrorRecord(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class TokenUsage(BaseModel):
+    prompt_token_count: int = Field(default=0, ge=0)
+    candidates_token_count: int = Field(default=0, ge=0)
+    total_token_count: int = Field(default=0, ge=0)
+    cached_content_token_count: int = Field(default=0, ge=0)
+    thoughts_token_count: int = Field(default=0, ge=0)
+    tool_use_prompt_token_count: int = Field(default=0, ge=0)
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class LoadedStageBundle(BaseModel, Generic[T]):
     stage: StageName
     status: StageExecutionStatus
@@ -331,6 +342,9 @@ class AgentBCutOutput(BaseModel):
     actions: List[Action]
     validation_issues: List[str]
     model: str = Field(min_length=1)
+    latency_ms: float = Field(default=0.0, ge=0.0)
+    usage: TokenUsage = Field(default_factory=TokenUsage)
+    estimated_cost_usd: float = Field(default=0.0, ge=0.0)
 
     model_config = ConfigDict(extra="forbid")
 
@@ -342,6 +356,9 @@ class AgentBAllCutsResult(BaseModel):
     total_actions: int = Field(ge=0)
     unresolved_count: int = Field(ge=0)
     reassigned_count: int = Field(ge=0)
+    aggregate_usage: TokenUsage = Field(default_factory=TokenUsage)
+    total_model_latency_ms: float = Field(default=0.0, ge=0.0)
+    estimated_total_cost_usd: float = Field(default=0.0, ge=0.0)
     warnings: List["WarningItem"] = Field(default_factory=list)
 
     model_config = ConfigDict(extra="forbid")
@@ -433,5 +450,7 @@ class AgentCResult(BaseModel):
     cache_hit_count: int = Field(ge=0)
     total_flash_latency_ms: float = Field(ge=0.0)
     per_call_flash_latency_ms: List[float] = Field(default_factory=list)
+    flash_usage: TokenUsage = Field(default_factory=TokenUsage)
+    estimated_flash_cost_usd: float = Field(default=0.0, ge=0.0)
 
     model_config = ConfigDict(extra="forbid")

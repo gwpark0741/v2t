@@ -8,8 +8,9 @@ from typing import Any, Literal
 
 from google.genai import types
 
+from .gemini_metrics import add_token_usage, estimate_model_cost_usd, extract_token_usage
 from .gemini_client import create_gemini_client
-from .models import Action, SurfaceJudgment, WarningItem
+from .models import Action, SurfaceJudgment, TokenUsage, WarningItem
 
 
 DEFAULT_SURFACE_JUDGE_MODEL = "gemini-2.5-flash"
@@ -107,6 +108,8 @@ class SurfaceJudge:
         self._flash_call_count = 0
         self._cache_hit_count = 0
         self._per_call_flash_latency_ms: list[float] = []
+        self._flash_usage = TokenUsage()
+        self._estimated_flash_cost_usd = 0.0
         self.flash_client = flash_client
         self.model = model
 
@@ -125,6 +128,14 @@ class SurfaceJudge:
     @property
     def per_call_flash_latency_ms(self) -> list[float]:
         return list(self._per_call_flash_latency_ms)
+
+    @property
+    def flash_usage(self) -> TokenUsage:
+        return self._flash_usage.model_copy()
+
+    @property
+    def estimated_flash_cost_usd(self) -> float:
+        return self._estimated_flash_cost_usd
 
     def get_judgments(self) -> list[SurfaceJudgment]:
         return list(self._judgments)
@@ -217,6 +228,9 @@ class SurfaceJudge:
                 config=_build_generation_config(),
             )
             self._per_call_flash_latency_ms.append((time.monotonic() - started_at) * 1000.0)
+            usage = extract_token_usage(response)
+            self._flash_usage = add_token_usage(self._flash_usage, usage)
+            self._estimated_flash_cost_usd += estimate_model_cost_usd(self.model, usage)
         except Exception as exc:
             self._per_call_flash_latency_ms.append((time.monotonic() - started_at) * 1000.0)
             self._warnings.append(

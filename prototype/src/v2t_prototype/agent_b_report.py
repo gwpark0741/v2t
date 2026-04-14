@@ -50,6 +50,7 @@ def build_agent_b_report_html(
     report_title = title or "Agent B Report"
     entity_registry = agent_a_output.response.entity_registry
     cut_map = {cut.id: cut for cut in agent_a_output.request.cuts}
+    aggregate_usage = result.aggregate_usage
 
     issue_sections: list[str] = []
     for cut_output in result.cut_outputs:
@@ -94,6 +95,11 @@ def build_agent_b_report_html(
         <div class="label">Authoritative Interval</div><div>{escape(interval)}</div>
         <div class="label">Model</div><div>{escape(cut_output.model)}</div>
         <div class="label">Action Count</div><div>{len(cut_output.actions)}</div>
+        <div class="label">Latency (ms)</div><div>{cut_output.latency_ms:.2f}</div>
+        <div class="label">Prompt Tokens</div><div>{cut_output.usage.prompt_token_count}</div>
+        <div class="label">Output Tokens</div><div>{cut_output.usage.candidates_token_count}</div>
+        <div class="label">Total Tokens</div><div>{cut_output.usage.total_token_count}</div>
+        <div class="label">Estimated Cost (USD)</div><div>{cut_output.estimated_cost_usd:.6f}</div>
       </div>
       <h3>Validation Issues</h3>
       {validation_block}
@@ -213,6 +219,11 @@ def build_agent_b_report_html(
         <div class="label">Total Actions</div><div>{result.total_actions}</div>
         <div class="label">Unresolved Count</div><div>{result.unresolved_count}</div>
         <div class="label">Reassigned Count</div><div>{result.reassigned_count}</div>
+        <div class="label">Total Model Latency (ms)</div><div>{result.total_model_latency_ms:.2f}</div>
+        <div class="label">Prompt Tokens</div><div>{aggregate_usage.prompt_token_count}</div>
+        <div class="label">Output Tokens</div><div>{aggregate_usage.candidates_token_count}</div>
+        <div class="label">Total Tokens</div><div>{aggregate_usage.total_token_count}</div>
+        <div class="label">Estimated Cost (USD)</div><div>{result.estimated_total_cost_usd:.6f}</div>
         <div class="label">Skipped Cut IDs</div><div>{escape(skipped_list)}</div>
         <div class="label">Failed Cut IDs</div><div>{escape(failed_list)}</div>
         <div class="label">Characters</div><div>{len(entity_registry.characters)}</div>

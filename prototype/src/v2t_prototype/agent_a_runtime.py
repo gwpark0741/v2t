@@ -1,14 +1,16 @@
 from __future__ import annotations
 
+import time
 from typing import Optional
 
 from google import genai
 from google.genai import types
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from .agent_a import build_agent_a_request, validate_agent_a_response
+from .gemini_metrics import estimate_model_cost_usd, extract_token_usage
 from .gemini_client import DEFAULT_AGENT_A_MODEL, create_gemini_client
-from .models import AgentARequest, AgentAResponse, PreprocessingResult
+from .models import AgentARequest, AgentAResponse, PreprocessingResult, TokenUsage
 
 
 DEFAULT_AGENT_A_SYSTEM_PROMPT = (
@@ -39,6 +41,10 @@ class AgentARuntimeOutput(BaseModel):
     request: AgentARequest
     response: AgentAResponse
     raw_response_text: str
+    model: str | None = None
+    latency_ms: float = 0.0
+    usage: TokenUsage = Field(default_factory=TokenUsage)
+    estimated_cost_usd: float = 0.0
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -83,11 +89,14 @@ def run_agent_a_runtime(
         mime_type=request.video_mime_type,
     )
 
+    started_at = time.monotonic()
     gemini_response = runtime_client.models.generate_content(
         model=model,
         contents=[video_part, prompt],
         config=_build_generation_config(),
     )
+    latency_ms = (time.monotonic() - started_at) * 1000.0
+    usage = extract_token_usage(gemini_response)
 
     raw_response_text = gemini_response.text
     if not raw_response_text:
@@ -106,4 +115,8 @@ def run_agent_a_runtime(
         request=request,
         response=parsed_response,
         raw_response_text=raw_response_text,
+        model=model,
+        latency_ms=latency_ms,
+        usage=usage,
+        estimated_cost_usd=estimate_model_cost_usd(model, usage),
     )

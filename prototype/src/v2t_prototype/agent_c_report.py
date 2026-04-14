@@ -23,6 +23,7 @@ def build_agent_c_report_html(
         if result.flash_call_count
         else 0.0
     )
+    flash_usage = result.flash_usage
 
     track_rows = "".join(
         (
@@ -210,6 +211,10 @@ def build_agent_c_report_html(
         <div class="label">Cache Hit Count</div><div>{result.cache_hit_count}</div>
         <div class="label">Total Flash Latency (ms)</div><div>{result.total_flash_latency_ms:.2f}</div>
         <div class="label">Average Flash Latency (ms)</div><div>{average_flash_latency_ms:.2f}</div>
+        <div class="label">Flash Prompt Tokens</div><div>{flash_usage.prompt_token_count}</div>
+        <div class="label">Flash Output Tokens</div><div>{flash_usage.candidates_token_count}</div>
+        <div class="label">Flash Total Tokens</div><div>{flash_usage.total_token_count}</div>
+        <div class="label">Estimated Flash Cost (USD)</div><div>{result.estimated_flash_cost_usd:.6f}</div>
       </div>
     </section>
     <section class="card">

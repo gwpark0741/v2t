@@ -63,7 +63,23 @@ def _valid_agent_a_response_json() -> str:
     )
 
 
-def _make_mock_client(response_text: str) -> Mock:
+def _usage_metadata(
+    *,
+    prompt_token_count: int = 0,
+    candidates_token_count: int = 0,
+    total_token_count: int | None = None,
+):
+    return SimpleNamespace(
+        prompt_token_count=prompt_token_count,
+        candidates_token_count=candidates_token_count,
+        total_token_count=total_token_count if total_token_count is not None else prompt_token_count + candidates_token_count,
+        cached_content_token_count=0,
+        thoughts_token_count=0,
+        tool_use_prompt_token_count=0,
+    )
+
+
+def _make_mock_client(response_text: str, *, usage_metadata=None) -> Mock:
     client = Mock()
     files_mock = Mock()
     files_mock.upload.return_value = SimpleNamespace(
@@ -77,7 +93,10 @@ def _make_mock_client(response_text: str) -> Mock:
         state=types.FileState.ACTIVE,
     )
     client.files = files_mock
-    client.models.generate_content.return_value = SimpleNamespace(text=response_text)
+    client.models.generate_content.return_value = SimpleNamespace(
+        text=response_text,
+        usage_metadata=usage_metadata or _usage_metadata(),
+    )
     return client
 
 
@@ -107,7 +126,10 @@ def test_upload_video_file_calls_files_api_upload(tmp_path: Path):
 
 def test_run_agent_a_runtime_success_with_structured_output_config():
     preprocessing = make_preprocessing_result()
-    client = _make_mock_client(_valid_agent_a_response_json())
+    client = _make_mock_client(
+        _valid_agent_a_response_json(),
+        usage_metadata=_usage_metadata(prompt_token_count=1200, candidates_token_count=300),
+    )
 
     with patch("v2t_prototype.agent_a_runtime.types.Part.from_uri") as part_from_uri:
         part_from_uri.return_value = SimpleNamespace(content="video part")
@@ -116,6 +138,12 @@ def test_run_agent_a_runtime_success_with_structured_output_config():
     assert output.request.video_url == "gs://bucket/sample.mp4"
     assert output.response.entity_registry.characters[0].id == "char_001"
     assert json.loads(output.model_dump_json())["request"]["video_url"] == "gs://bucket/sample.mp4"
+    assert output.model == "gemini-2.5-pro"
+    assert output.latency_ms >= 0.0
+    assert output.usage.prompt_token_count == 1200
+    assert output.usage.candidates_token_count == 300
+    assert output.usage.total_token_count == 1500
+    assert output.estimated_cost_usd == pytest.approx(0.0045)
     client.files.upload.assert_not_called()
     client.files.get.assert_not_called()
     part_from_uri.assert_called_once_with(

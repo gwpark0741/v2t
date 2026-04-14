@@ -5,6 +5,8 @@ import json
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+import pytest
+
 from v2t_prototype.agent_a_runtime import AgentARuntimeOutput
 from v2t_prototype.agent_b import build_agent_b_cut_input
 from v2t_prototype.agent_b_runtime import (
@@ -133,10 +135,35 @@ def _valid_action_dict(**overrides):
     return payload
 
 
+def _usage_metadata(
+    *,
+    prompt_token_count: int = 0,
+    candidates_token_count: int = 0,
+    total_token_count: int | None = None,
+):
+    return SimpleNamespace(
+        prompt_token_count=prompt_token_count,
+        candidates_token_count=candidates_token_count,
+        total_token_count=total_token_count if total_token_count is not None else prompt_token_count + candidates_token_count,
+        cached_content_token_count=0,
+        thoughts_token_count=0,
+        tool_use_prompt_token_count=0,
+    )
+
+
 def _mock_client_with_texts(*texts: str) -> Mock:
     client = Mock()
     client.models.generate_content.side_effect = [
-        SimpleNamespace(text=text) for text in texts
+        SimpleNamespace(text=text, usage_metadata=_usage_metadata()) for text in texts
+    ]
+    return client
+
+
+def _mock_client_with_payloads(*payloads: tuple[str, object]) -> Mock:
+    client = Mock()
+    client.models.generate_content.side_effect = [
+        SimpleNamespace(text=text, usage_metadata=usage)
+        for text, usage in payloads
     ]
     return client
 
@@ -165,6 +192,9 @@ def test_run_agent_b_for_cut_success_rewrites_reassign_and_forces_boundary_false
         output = run_agent_b_for_cut(input_model, client=client)
 
     assert output.model == DEFAULT_AGENT_B_MODEL
+    assert output.latency_ms >= 0.0
+    assert output.usage.total_token_count == 0
+    assert output.estimated_cost_usd == 0.0
     assert output.validation_issues == []
     assert len(output.actions) == 1
     assert output.actions[0].primary_source_id == "obj_001"
@@ -305,6 +335,30 @@ def test_run_agent_b_for_cut_retries_when_event_type_remains_invalid_after_norma
     assert output.actions == []
     assert output.validation_issues == ["AGENT_B_RESPONSE_PARSE_ERROR"]
     assert client.models.generate_content.call_count == 1
+
+
+def test_run_agent_b_for_cut_accumulates_usage_and_cost_across_retries():
+    input_model = _make_runtime_input()
+    client = _mock_client_with_payloads(
+        (
+            "{not-json",
+            _usage_metadata(prompt_token_count=1000, candidates_token_count=50),
+        ),
+        (
+            json.dumps({"actions": [_valid_action_dict(boundary_flag=False)]}),
+            _usage_metadata(prompt_token_count=900, candidates_token_count=75),
+        ),
+    )
+
+    with patch("v2t_prototype.agent_b_runtime.types.Part.from_uri") as part_from_uri:
+        part_from_uri.return_value = SimpleNamespace(content="clip")
+        output = run_agent_b_for_cut(input_model, client=client, max_retries=1)
+
+    assert output.validation_issues == []
+    assert output.usage.prompt_token_count == 1900
+    assert output.usage.candidates_token_count == 125
+    assert output.usage.total_token_count == 2025
+    assert output.estimated_cost_usd == pytest.approx(0.003625)
 
 
 def test_run_agent_b_for_cut_retries_small_validation_issue_then_succeeds():

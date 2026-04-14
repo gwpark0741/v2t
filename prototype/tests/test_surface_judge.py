@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
+import pytest
+
 from v2t_prototype.models import Action, OnsetEvent
 from v2t_prototype.surface_judge import SurfaceJudge
 
@@ -24,8 +28,9 @@ def _action(
 
 
 class _FakeResponse:
-    def __init__(self, text: str):
+    def __init__(self, text: str, usage_metadata=None):
         self.text = text
+        self.usage_metadata = usage_metadata
 
 
 class _FakeModels:
@@ -38,12 +43,31 @@ class _FakeModels:
         self.calls.append(kwargs)
         if self._exc is not None:
             raise self._exc
-        return _FakeResponse(self._responses.pop(0))
+        payload = self._responses.pop(0)
+        if isinstance(payload, tuple):
+            return _FakeResponse(payload[0], usage_metadata=payload[1])
+        return _FakeResponse(payload)
 
 
 class _FakeClient:
     def __init__(self, responses=None, exc: Exception | None = None):
         self.models = _FakeModels(responses=responses, exc=exc)
+
+
+def _usage_metadata(
+    *,
+    prompt_token_count: int = 0,
+    candidates_token_count: int = 0,
+    total_token_count: int | None = None,
+):
+    return SimpleNamespace(
+        prompt_token_count=prompt_token_count,
+        candidates_token_count=candidates_token_count,
+        total_token_count=total_token_count if total_token_count is not None else prompt_token_count + candidates_token_count,
+        cached_content_token_count=0,
+        thoughts_token_count=0,
+        tool_use_prompt_token_count=0,
+    )
 
 
 def test_surface_judge_marks_both_null_as_compatible():
@@ -94,7 +118,12 @@ def test_surface_judge_matches_after_normalization_without_flash():
 
 def test_surface_judge_reuses_cache_for_reversed_pair():
     client = _FakeClient(
-        responses=['{"result":"COMPATIBLE","reason":"Same table surface."}']
+        responses=[
+            (
+                '{"result":"COMPATIBLE","reason":"Same table surface."}',
+                _usage_metadata(prompt_token_count=100, candidates_token_count=20),
+            )
+        ]
     )
     judge = SurfaceJudge(flash_client=client)
     action_a = _action("act_a", surface_context="glass table")
@@ -109,6 +138,9 @@ def test_surface_judge_reuses_cache_for_reversed_pair():
     assert judge.cache_hit_count == 1
     assert len(judge.per_call_flash_latency_ms) == 1
     assert judge.total_flash_latency_ms >= 0.0
+    assert judge.flash_usage.prompt_token_count == 100
+    assert judge.flash_usage.candidates_token_count == 20
+    assert judge.estimated_flash_cost_usd == pytest.approx(8e-05)
     assert len(client.models.calls) == 1
     assert [item.source for item in judge.get_judgments()] == ["flash", "cache_hit"]
 

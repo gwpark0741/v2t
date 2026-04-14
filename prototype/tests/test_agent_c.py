@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from typing import Any
+from types import SimpleNamespace
+
+import pytest
 
 from v2t_prototype.agent_c import run_agent_c
 from v2t_prototype.models import (
@@ -19,8 +22,9 @@ from v2t_prototype.models import (
 
 
 class _FakeResponse:
-    def __init__(self, text: str):
+    def __init__(self, text: str, usage_metadata=None):
         self.text = text
+        self.usage_metadata = usage_metadata
 
 
 class _FakeModels:
@@ -31,12 +35,31 @@ class _FakeModels:
     def generate_content(self, **kwargs: Any) -> _FakeResponse:
         if self._exc is not None:
             raise self._exc
-        return _FakeResponse(self._responses.pop(0))
+        payload = self._responses.pop(0)
+        if isinstance(payload, tuple):
+            return _FakeResponse(payload[0], usage_metadata=payload[1])
+        return _FakeResponse(payload)
 
 
 class _FakeClient:
     def __init__(self, responses=None, exc: Exception | None = None):
         self.models = _FakeModels(responses=responses, exc=exc)
+
+
+def _usage_metadata(
+    *,
+    prompt_token_count: int = 0,
+    candidates_token_count: int = 0,
+    total_token_count: int | None = None,
+):
+    return SimpleNamespace(
+        prompt_token_count=prompt_token_count,
+        candidates_token_count=candidates_token_count,
+        total_token_count=total_token_count if total_token_count is not None else prompt_token_count + candidates_token_count,
+        cached_content_token_count=0,
+        thoughts_token_count=0,
+        tool_use_prompt_token_count=0,
+    )
 
 
 def _entity_registry() -> EntityRegistry:
@@ -362,7 +385,12 @@ def test_run_agent_c_records_surface_judgments_and_flash_calls():
         ),
         _entity_registry(),
         flash_client=_FakeClient(
-            responses=['{"result":"COMPATIBLE","reason":"Same table surface."}']
+            responses=[
+                (
+                    '{"result":"COMPATIBLE","reason":"Same table surface."}',
+                    _usage_metadata(prompt_token_count=120, candidates_token_count=40),
+                )
+            ]
         ),
     )
 
@@ -370,6 +398,10 @@ def test_run_agent_c_records_surface_judgments_and_flash_calls():
     assert result.cache_hit_count == 0
     assert result.total_flash_latency_ms >= 0.0
     assert len(result.per_call_flash_latency_ms) == 1
+    assert result.flash_usage.prompt_token_count == 120
+    assert result.flash_usage.candidates_token_count == 40
+    assert result.flash_usage.total_token_count == 160
+    assert result.estimated_flash_cost_usd == pytest.approx(0.000136)
     assert len(result.surface_judgments) == 1
     assert result.surface_judgments[0].source == "flash"
     assert result.surface_judgments[0].model == "gemini-2.5-flash"

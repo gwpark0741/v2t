@@ -108,6 +108,7 @@ def build_agent_a_report_html(
         + len(response.entity_registry.key_objects)
         + len(response.entity_registry.ambience_sources)
     )
+    usage = runtime_output.usage
 
     html = f"""<!DOCTYPE html>
 <html lang=\"en\">
@@ -293,6 +294,12 @@ def build_agent_a_report_html(
     <div class=\"card\">
       <h2>Agent A Response Summary</h2>
       <div class=\"kv\">
+        <div class=\"label\">model</div><div>{escape(runtime_output.model or '-')}</div>
+        <div class=\"label\">latency_ms</div><div>{runtime_output.latency_ms:.2f}</div>
+        <div class=\"label\">prompt_token_count</div><div>{usage.prompt_token_count}</div>
+        <div class=\"label\">candidates_token_count</div><div>{usage.candidates_token_count}</div>
+        <div class=\"label\">total_token_count</div><div>{usage.total_token_count}</div>
+        <div class=\"label\">estimated_cost_usd</div><div>{runtime_output.estimated_cost_usd:.6f}</div>
         <div class=\"label\">characters</div><div>{len(response.entity_registry.characters)}</div>
         <div class=\"label\">key_objects</div><div>{len(response.entity_registry.key_objects)}</div>
         <div class=\"label\">ambience_sources</div><div>{len(response.entity_registry.ambience_sources)}</div>

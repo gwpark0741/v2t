@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import time
 from typing import Any, Optional
 
 from google import genai
@@ -11,6 +12,7 @@ from pydantic import ValidationError
 
 from .agent_a_runtime import AgentARuntimeOutput
 from .agent_b import build_agent_b_cut_input, validate_agent_b_response
+from .gemini_metrics import add_token_usage, estimate_model_cost_usd, extract_token_usage
 from .gemini_client import create_gemini_client
 from .models import (
     Action,
@@ -19,6 +21,7 @@ from .models import (
     AgentBCutOutput,
     AgentBResponse,
     SegmentPrepResult,
+    TokenUsage,
     WarningItem,
     UnknownResolution,
 )
@@ -198,12 +201,21 @@ def run_agent_b_for_cut(
     )
 
     retries_used = 0
+    aggregate_usage = TokenUsage()
+    total_latency_ms = 0.0
+    estimated_total_cost_usd = 0.0
     while True:
+        started_at = time.monotonic()
         gemini_response = runtime_client.models.generate_content(
             model=model,
             contents=[clip_part, prompt],
             config=_build_generation_config(),
         )
+        latency_ms = (time.monotonic() - started_at) * 1000.0
+        usage = extract_token_usage(gemini_response)
+        aggregate_usage = add_token_usage(aggregate_usage, usage)
+        total_latency_ms += latency_ms
+        estimated_total_cost_usd += estimate_model_cost_usd(model, usage)
         raw_response_text = gemini_response.text or ""
 
         try:
@@ -219,6 +231,9 @@ def run_agent_b_for_cut(
                 actions=[],
                 validation_issues=["AGENT_B_RESPONSE_PARSE_ERROR"],
                 model=model,
+                latency_ms=total_latency_ms,
+                usage=aggregate_usage,
+                estimated_cost_usd=estimated_total_cost_usd,
             )
         except ValidationError:
             if retries_used < max_retries:
@@ -230,6 +245,9 @@ def run_agent_b_for_cut(
                 actions=[],
                 validation_issues=["AGENT_B_RESPONSE_PARSE_ERROR"],
                 model=model,
+                latency_ms=total_latency_ms,
+                usage=aggregate_usage,
+                estimated_cost_usd=estimated_total_cost_usd,
             )
 
         issues = validate_agent_b_response(parsed_response, input.cut_id, input.entity_registry)
@@ -244,6 +262,9 @@ def run_agent_b_for_cut(
                 actions=[],
                 validation_issues=issues,
                 model=model,
+                latency_ms=total_latency_ms,
+                usage=aggregate_usage,
+                estimated_cost_usd=estimated_total_cost_usd,
             )
 
         return AgentBCutOutput(
@@ -252,6 +273,9 @@ def run_agent_b_for_cut(
             actions=[_postprocess_action(action) for action in parsed_response.actions],
             validation_issues=issues,
             model=model,
+            latency_ms=total_latency_ms,
+            usage=aggregate_usage,
+            estimated_cost_usd=estimated_total_cost_usd,
         )
 
 
@@ -312,6 +336,13 @@ async def run_agent_b_all_cuts_parallel(
         cut_outputs.append(result)
 
     total_actions = sum(len(output.actions) for output in cut_outputs)
+    aggregate_usage = TokenUsage()
+    total_model_latency_ms = 0.0
+    estimated_total_cost_usd = 0.0
+    for output in cut_outputs:
+        aggregate_usage = add_token_usage(aggregate_usage, output.usage)
+        total_model_latency_ms += output.latency_ms
+        estimated_total_cost_usd += output.estimated_cost_usd
     unresolved_count = sum(
         1
         for output in cut_outputs
@@ -335,5 +366,8 @@ async def run_agent_b_all_cuts_parallel(
         total_actions=total_actions,
         unresolved_count=unresolved_count,
         reassigned_count=reassigned_count,
+        aggregate_usage=aggregate_usage,
+        total_model_latency_ms=total_model_latency_ms,
+        estimated_total_cost_usd=estimated_total_cost_usd,
         warnings=warnings,
     )

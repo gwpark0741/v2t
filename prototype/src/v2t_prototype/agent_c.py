@@ -84,4 +84,6 @@ def run_agent_c(
         cache_hit_count=surface_judge.cache_hit_count,
         total_flash_latency_ms=surface_judge.total_flash_latency_ms,
         per_call_flash_latency_ms=surface_judge.per_call_flash_latency_ms,
+        flash_usage=surface_judge.flash_usage,
+        estimated_flash_cost_usd=surface_judge.estimated_flash_cost_usd,
     )
