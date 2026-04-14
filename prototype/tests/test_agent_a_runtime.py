@@ -12,30 +12,36 @@ from v2t_prototype import create_gemini_client, upload_video_file
 from v2t_prototype import (
     AgentAPostValidationError,
     AgentAResponseParseError,
-    PreprocessingResult,
+    Cut,
+    FullVideoAssetResult,
+    LocalPreprocessingResult,
+    VideoMetadata,
     run_agent_a_runtime,
 )
 from v2t_prototype.gemini_client import wait_for_uploaded_file_active
 
 
-def make_preprocessing_result() -> PreprocessingResult:
-    return PreprocessingResult.model_validate(
-        {
-            "video_metadata": {
-                "video_path": "videos/sample.mp4",
-                "fps": 24.0,
-                "frame_count": 240,
-                "duration_seconds": 10.0,
-                "width": 1280,
-                "height": 720,
-            },
-            "video_url": "gs://bucket/sample.mp4",
-            "video_mime_type": "video/mp4",
-            "cuts": [
-                {"id": "CUT_001", "start_time": 0.0, "end_time": 4.0},
-                {"id": "CUT_002", "start_time": 4.0, "end_time": 10.0},
+def make_full_video_asset_result() -> FullVideoAssetResult:
+    return FullVideoAssetResult(
+        local=LocalPreprocessingResult(
+            video_metadata=VideoMetadata(
+                video_path="videos/sample.mp4",
+                fps=24.0,
+                frame_count=240,
+                duration_seconds=10.0,
+                width=1280,
+                height=720,
+            ),
+            cuts=[
+                Cut(id="CUT_001", start_time=0.0, end_time=4.0),
+                Cut(id="CUT_002", start_time=4.0, end_time=10.0),
             ],
-        }
+            video_path="videos/sample.mp4",
+            video_mime_type="video/mp4",
+        ),
+        video_url="gs://bucket/sample.mp4",
+        gemini_file_name="files/sample",
+        upload_timestamp_utc="2026-04-14T00:00:00Z",
     )
 
 
@@ -125,7 +131,7 @@ def test_upload_video_file_calls_files_api_upload(tmp_path: Path):
 
 
 def test_run_agent_a_runtime_success_with_structured_output_config():
-    preprocessing = make_preprocessing_result()
+    full_video_asset = make_full_video_asset_result()
     client = _make_mock_client(
         _valid_agent_a_response_json(),
         usage_metadata=_usage_metadata(prompt_token_count=1200, candidates_token_count=300),
@@ -133,7 +139,7 @@ def test_run_agent_a_runtime_success_with_structured_output_config():
 
     with patch("v2t_prototype.agent_a_runtime.types.Part.from_uri") as part_from_uri:
         part_from_uri.return_value = SimpleNamespace(content="video part")
-        output = run_agent_a_runtime(preprocessing=preprocessing, client=client)
+        output = run_agent_a_runtime(full_video_asset=full_video_asset, client=client)
 
     assert output.request.video_url == "gs://bucket/sample.mp4"
     assert output.response.entity_registry.characters[0].id == "char_001"
@@ -147,7 +153,7 @@ def test_run_agent_a_runtime_success_with_structured_output_config():
     client.files.upload.assert_not_called()
     client.files.get.assert_not_called()
     part_from_uri.assert_called_once_with(
-        file_uri=preprocessing.video_url,
+        file_uri=full_video_asset.video_url,
         mime_type="video/mp4",
     )
     generate_kwargs = client.models.generate_content.call_args.kwargs
@@ -157,15 +163,15 @@ def test_run_agent_a_runtime_success_with_structured_output_config():
 
 
 def test_run_agent_a_runtime_raises_on_invalid_json_response():
-    preprocessing = make_preprocessing_result()
+    full_video_asset = make_full_video_asset_result()
     client = _make_mock_client("{not-json")
 
     with pytest.raises(AgentAResponseParseError):
-        run_agent_a_runtime(preprocessing=preprocessing, client=client)
+        run_agent_a_runtime(full_video_asset=full_video_asset, client=client)
 
 
 def test_run_agent_a_runtime_raises_on_schema_mismatch():
-    preprocessing = make_preprocessing_result()
+    full_video_asset = make_full_video_asset_result()
     client = _make_mock_client(
         json.dumps(
             {
@@ -175,11 +181,11 @@ def test_run_agent_a_runtime_raises_on_schema_mismatch():
     )
 
     with pytest.raises(AgentAResponseParseError):
-        run_agent_a_runtime(preprocessing=preprocessing, client=client)
+        run_agent_a_runtime(full_video_asset=full_video_asset, client=client)
 
 
 def test_run_agent_a_runtime_raises_on_post_validation_failure():
-    preprocessing = make_preprocessing_result()
+    full_video_asset = make_full_video_asset_result()
     client = _make_mock_client(
         json.dumps(
             {
@@ -201,7 +207,7 @@ def test_run_agent_a_runtime_raises_on_post_validation_failure():
     )
 
     with pytest.raises(AgentAPostValidationError) as exc_info:
-        run_agent_a_runtime(preprocessing=preprocessing, client=client)
+        run_agent_a_runtime(full_video_asset=full_video_asset, client=client)
     assert "invalid character id prefix person_001" in exc_info.value.issues
 
 

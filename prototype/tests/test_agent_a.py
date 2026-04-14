@@ -1,32 +1,43 @@
-from v2t_prototype import AgentAResponse, PreprocessingResult, build_agent_a_request, validate_agent_a_response
+from v2t_prototype import (
+    AgentAResponse,
+    Cut,
+    FullVideoAssetResult,
+    LocalPreprocessingResult,
+    VideoMetadata,
+    build_agent_a_request,
+    validate_agent_a_response,
+)
 
 
-def make_preprocessing_result() -> PreprocessingResult:
-    return PreprocessingResult.model_validate(
-        {
-            "video_metadata": {
-                "video_path": "videos/sample.mp4",
-                "fps": 24.0,
-                "frame_count": 240,
-                "duration_seconds": 10.0,
-                "width": 1280,
-                "height": 720,
-            },
-            "video_url": "gs://bucket/sample.mp4",
-            "video_mime_type": "video/mp4",
-            "cuts": [
-                {"id": "CUT_001", "start_time": 0.0, "end_time": 4.0},
-                {"id": "CUT_002", "start_time": 4.0, "end_time": 10.0},
+def make_full_video_asset_result() -> FullVideoAssetResult:
+    return FullVideoAssetResult(
+        local=LocalPreprocessingResult(
+            video_metadata=VideoMetadata(
+                video_path="videos/sample.mp4",
+                fps=24.0,
+                frame_count=240,
+                duration_seconds=10.0,
+                width=1280,
+                height=720,
+            ),
+            cuts=[
+                Cut(id="CUT_001", start_time=0.0, end_time=4.0),
+                Cut(id="CUT_002", start_time=4.0, end_time=10.0),
             ],
-        }
+            video_path="videos/sample.mp4",
+            video_mime_type="video/mp4",
+        ),
+        video_url="gs://bucket/sample.mp4",
+        gemini_file_name="files/sample",
+        upload_timestamp_utc="2026-04-14T00:00:00Z",
     )
 
 
-def test_build_agent_a_request_from_preprocessing_and_video_url():
-    preprocessing = make_preprocessing_result()
+def test_build_agent_a_request_from_full_video_asset_result():
+    full_video_asset = make_full_video_asset_result()
 
     request = build_agent_a_request(
-        preprocessing=preprocessing,
+        full_video_asset=full_video_asset,
     )
 
     assert request.video_url == "gs://bucket/sample.mp4"
@@ -36,7 +47,7 @@ def test_build_agent_a_request_from_preprocessing_and_video_url():
 
 
 def test_validate_agent_a_response_accepts_valid_registry():
-    preprocessing = make_preprocessing_result()
+    full_video_asset = make_full_video_asset_result()
     response = AgentAResponse.model_validate(
         {
             "entity_registry": {
@@ -75,12 +86,12 @@ def test_validate_agent_a_response_accepts_valid_registry():
         }
     )
 
-    issues = validate_agent_a_response(preprocessing, response)
+    issues = validate_agent_a_response(full_video_asset, response)
     assert issues == []
 
 
 def test_validate_agent_a_response_reports_entity_id_issues():
-    preprocessing = make_preprocessing_result()
+    full_video_asset = make_full_video_asset_result()
     response = AgentAResponse.model_validate(
         {
             "entity_registry": {
@@ -119,7 +130,7 @@ def test_validate_agent_a_response_reports_entity_id_issues():
         }
     )
 
-    issues = validate_agent_a_response(preprocessing, response)
+    issues = validate_agent_a_response(full_video_asset, response)
     assert "invalid character id prefix person_001" in issues
     assert "duplicate entity id person_001" in issues
     assert "invalid ambience source id prefix ambience_001" in issues

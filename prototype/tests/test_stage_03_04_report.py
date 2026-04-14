@@ -10,9 +10,10 @@ from v2t_prototype.models import (
     Character,
     Cut,
     EntityRegistry,
+    FullVideoAssetResult,
     Interval,
     KeyObject,
-    PreprocessingResult,
+    LocalPreprocessingResult,
     SegmentClip,
     SegmentPrepResult,
     VideoMetadata,
@@ -23,32 +24,37 @@ from v2t_prototype.stage_03_04_report import (
 )
 
 
-def _sample_preprocessing() -> PreprocessingResult:
-    return PreprocessingResult(
-        video_metadata=VideoMetadata(
+def _sample_full_video_asset() -> FullVideoAssetResult:
+    return FullVideoAssetResult(
+        local=LocalPreprocessingResult(
+            video_metadata=VideoMetadata(
+                video_path="/tmp/source.mp4",
+                fps=24.0,
+                frame_count=240,
+                duration_seconds=10.0,
+                width=1280,
+                height=720,
+            ),
+            cuts=[
+                Cut(id="CUT_001", start_time=0.0, end_time=4.0),
+                Cut(id="CUT_002", start_time=4.0, end_time=10.0),
+            ],
             video_path="/tmp/source.mp4",
-            fps=24.0,
-            frame_count=240,
-            duration_seconds=10.0,
-            width=1280,
-            height=720,
+            video_mime_type="video/mp4",
         ),
-        cuts=[
-            Cut(id="CUT_001", start_time=0.0, end_time=4.0),
-            Cut(id="CUT_002", start_time=4.0, end_time=10.0),
-        ],
         video_url="https://example.com/full",
-        video_mime_type="video/mp4",
+        gemini_file_name="files/full",
+        upload_timestamp_utc="2026-04-14T00:00:00Z",
     )
 
 
 def _sample_agent_a_output() -> AgentARuntimeOutput:
-    preprocessing = _sample_preprocessing()
+    full_video_asset = _sample_full_video_asset()
     request = AgentARequest(
-        video_url=preprocessing.video_url,
-        video_mime_type=preprocessing.video_mime_type,
-        video_metadata=preprocessing.video_metadata,
-        cuts=preprocessing.cuts,
+        video_url=full_video_asset.video_url,
+        video_mime_type=full_video_asset.local.video_mime_type,
+        video_metadata=full_video_asset.local.video_metadata,
+        cuts=full_video_asset.local.cuts,
     )
     response = AgentAResponse(
         entity_registry=EntityRegistry(
@@ -108,7 +114,7 @@ def _sample_segment_prep() -> SegmentPrepResult:
 
 def test_build_stage_03_04_report_html_contains_pairwise_content():
     html = build_stage_03_04_report_html(
-        _sample_preprocessing(),
+        _sample_full_video_asset(),
         _sample_agent_a_output(),
         _sample_segment_prep(),
         title="Pairwise Review",
@@ -130,7 +136,7 @@ def test_build_stage_03_04_report_html_contains_pairwise_content():
 def test_write_stage_03_04_report_writes_file(tmp_path: Path):
     output_path = tmp_path / "pairwise_report.html"
     written = write_stage_03_04_report(
-        _sample_preprocessing(),
+        _sample_full_video_asset(),
         _sample_agent_a_output(),
         _sample_segment_prep(),
         output_path,

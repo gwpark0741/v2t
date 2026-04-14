@@ -9,17 +9,17 @@ from pydantic import BaseModel
 
 from .agent_a import validate_agent_a_response
 from .agent_a_runtime import AgentARuntimeOutput
-from .models import PreprocessingResult
+from .models import FullVideoAssetResult
 
 
 def _format_seconds(value: float) -> str:
     return f"{value:.3f}s"
 
 
-def _default_video_src(preprocessing: PreprocessingResult, *, video_src: str | None) -> str:
+def _default_video_src(full_video_asset: FullVideoAssetResult, *, video_src: str | None) -> str:
     if video_src:
         return video_src
-    path = Path(preprocessing.video_metadata.video_path)
+    path = Path(full_video_asset.local.video_metadata.video_path)
     return path.expanduser().resolve().as_uri()
 
 
@@ -65,23 +65,24 @@ def _render_json_block(raw_text: str) -> str:
 
 
 def build_agent_a_report_html(
-    preprocessing: PreprocessingResult,
+    full_video_asset: FullVideoAssetResult,
     runtime_output: AgentARuntimeOutput,
     *,
     title: str | None = None,
     video_src: str | None = None,
 ) -> str:
     report_title = title or "Agent A Report"
-    metadata = preprocessing.video_metadata
+    local = full_video_asset.local
+    metadata = local.video_metadata
     request = runtime_output.request
     response = runtime_output.response
-    video_src_final = _default_video_src(preprocessing, video_src=video_src)
+    video_src_final = _default_video_src(full_video_asset, video_src=video_src)
     request_json = request.model_dump_json(indent=2)
 
     timeline_segments: list[str] = []
     cut_rows: list[str] = []
     duration = metadata.duration_seconds
-    for cut in preprocessing.cuts:
+    for cut in local.cuts:
         cut_duration = cut.end_time - cut.start_time
         start_percent = 0.0 if duration <= 0 else (cut.start_time / duration) * 100.0
         width_percent = 0.0 if duration <= 0 else (cut_duration / duration) * 100.0
@@ -101,7 +102,7 @@ def build_agent_a_report_html(
             "</tr>"
         )
 
-    issues = validate_agent_a_response(preprocessing, response)
+    issues = validate_agent_a_response(full_video_asset, response)
     issue_count = len(issues)
     total_entities = (
         len(response.entity_registry.characters)
@@ -253,14 +254,14 @@ def build_agent_a_report_html(
     <div class=\"card\">
       <h2>Upload Result</h2>
       <div class=\"kv\">
-        <div class=\"label\">video_url</div><div>{escape(preprocessing.video_url)}</div>
-        <div class=\"label\">video_mime_type</div><div>{escape(preprocessing.video_mime_type)}</div>
+        <div class=\"label\">video_url</div><div>{escape(full_video_asset.video_url)}</div>
+        <div class=\"label\">video_mime_type</div><div>{escape(local.video_mime_type)}</div>
       </div>
     </div>
     <div class=\"card\">
       <h2>Preprocessing Output</h2>
       <div class=\"kv\">
-        <div class=\"label\">Cut Count</div><div>{len(preprocessing.cuts)}</div>
+        <div class=\"label\">Cut Count</div><div>{len(local.cuts)}</div>
         <div class=\"label\">Frame Count</div><div>{metadata.frame_count}</div>
       </div>
     </div>
@@ -332,7 +333,7 @@ def build_agent_a_report_html(
 
 
 def write_agent_a_report(
-    preprocessing: PreprocessingResult,
+    full_video_asset: FullVideoAssetResult,
     runtime_output: AgentARuntimeOutput,
     output_path: Path,
     *,
@@ -340,6 +341,6 @@ def write_agent_a_report(
     video_src: str | None = None,
 ) -> Path:
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    html = build_agent_a_report_html(preprocessing, runtime_output, title=title, video_src=video_src)
+    html = build_agent_a_report_html(full_video_asset, runtime_output, title=title, video_src=video_src)
     output_path.write_text(html, encoding="utf-8")
     return output_path

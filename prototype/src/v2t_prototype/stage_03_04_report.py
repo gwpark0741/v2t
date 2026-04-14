@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 from .agent_a import validate_agent_a_response
 from .agent_a_runtime import AgentARuntimeOutput
-from .models import PreprocessingResult, SegmentPrepResult
+from .models import FullVideoAssetResult, SegmentPrepResult
 
 
 def _format_seconds(value: float) -> str:
@@ -45,20 +45,21 @@ def _render_entity_list(label: str, items: Iterable[BaseModel]) -> str:
 
 
 def build_stage_03_04_report_html(
-    preprocessing: PreprocessingResult,
+    full_video_asset: FullVideoAssetResult,
     agent_a_output: AgentARuntimeOutput,
     segment_prep: SegmentPrepResult,
     *,
     title: str | None = None,
 ) -> str:
     report_title = title or "Stage 01/03/04 Pair Review Report"
-    metadata = preprocessing.video_metadata
+    local = full_video_asset.local
+    metadata = local.video_metadata
     clip_by_cut_id = {clip.cut_id: clip for clip in segment_prep.clips}
     skipped_by_cut_id = {skipped.cut_id: skipped for skipped in segment_prep.skipped_cuts}
-    validation_issues = validate_agent_a_response(preprocessing, agent_a_output.response)
+    validation_issues = validate_agent_a_response(full_video_asset, agent_a_output.response)
 
     pair_sections: list[str] = []
-    for cut in preprocessing.cuts:
+    for cut in local.cuts:
         clip = clip_by_cut_id.get(cut.id)
         skipped = skipped_by_cut_id.get(cut.id)
 
@@ -186,10 +187,10 @@ def build_stage_03_04_report_html(
       <video controls preload="metadata" src="{escape(_as_file_uri(metadata.video_path))}" class="source-player"></video>
       <div class="kv" style="margin-top: 12px;">
         <div class="label">Source Video</div><div>{escape(metadata.video_path)}</div>
-        <div class="label">Video URL</div><div>{escape(preprocessing.video_url)}</div>
+        <div class="label">Video URL</div><div>{escape(full_video_asset.video_url)}</div>
         <div class="label">Duration</div><div>{metadata.duration_seconds:.3f}s</div>
         <div class="label">Resolution</div><div>{metadata.width} x {metadata.height}</div>
-        <div class="label">Cut Count</div><div>{len(preprocessing.cuts)}</div>
+        <div class="label">Cut Count</div><div>{len(local.cuts)}</div>
         <div class="label">Agent A Characters</div><div>{len(agent_a_output.response.entity_registry.characters)}</div>
         <div class="label">Agent A Key Objects</div><div>{len(agent_a_output.response.entity_registry.key_objects)}</div>
         <div class="label">Agent A Ambience Sources</div><div>{len(agent_a_output.response.entity_registry.ambience_sources)}</div>
@@ -219,7 +220,7 @@ def build_stage_03_04_report_html(
 
 
 def write_stage_03_04_report(
-    preprocessing: PreprocessingResult,
+    full_video_asset: FullVideoAssetResult,
     agent_a_output: AgentARuntimeOutput,
     segment_prep: SegmentPrepResult,
     output_path: Path,
@@ -229,7 +230,7 @@ def write_stage_03_04_report(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(
         build_stage_03_04_report_html(
-            preprocessing,
+            full_video_asset,
             agent_a_output,
             segment_prep,
             title=title,

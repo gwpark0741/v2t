@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from .agent_a import build_agent_a_request, validate_agent_a_response
 from .gemini_metrics import estimate_model_cost_usd, extract_token_usage
 from .gemini_client import DEFAULT_AGENT_A_MODEL, create_gemini_client
-from .models import AgentARequest, AgentAResponse, PreprocessingResult, TokenUsage
+from .models import AgentARequest, AgentAResponse, FullVideoAssetResult, TokenUsage
 
 
 DEFAULT_AGENT_A_SYSTEM_PROMPT = (
@@ -70,7 +70,7 @@ def _build_generation_config() -> types.GenerateContentConfig:
 
 
 def run_agent_a_runtime(
-    preprocessing: PreprocessingResult,
+    full_video_asset: FullVideoAssetResult,
     *,
     client: Optional[genai.Client] = None,
     model: str = DEFAULT_AGENT_A_MODEL,
@@ -82,7 +82,7 @@ def run_agent_a_runtime(
     """
     runtime_client = client or create_gemini_client()
 
-    request = build_agent_a_request(preprocessing=preprocessing)
+    request = build_agent_a_request(full_video_asset=full_video_asset)
     prompt = _build_agent_a_prompt(request, prompt_header)
     video_part = types.Part.from_uri(
         file_uri=request.video_url,
@@ -107,7 +107,7 @@ def run_agent_a_runtime(
     except ValidationError as exc:
         raise AgentAResponseParseError("Failed to parse Agent A response JSON") from exc
 
-    issues = validate_agent_a_response(preprocessing, parsed_response)
+    issues = validate_agent_a_response(full_video_asset, parsed_response)
     if issues:
         raise AgentAPostValidationError(issues)
 

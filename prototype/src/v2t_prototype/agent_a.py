@@ -2,27 +2,29 @@ from __future__ import annotations
 
 from typing import List
 
-from .models import AgentARequest, AgentAResponse, PreprocessingResult
+from .models import AgentARequest, AgentAResponse, FullVideoAssetResult
 
 
-def build_agent_a_request(preprocessing: PreprocessingResult) -> AgentARequest:
+def build_agent_a_request(full_video_asset: FullVideoAssetResult) -> AgentARequest:
     """
-    Build the explicit Agent A request contract from preprocessing output.
+    Build the explicit Agent A request contract from Stage 02 output.
     """
+    local = full_video_asset.local
     return AgentARequest(
-        video_url=preprocessing.video_url,
-        video_mime_type=preprocessing.video_mime_type,
-        video_metadata=preprocessing.video_metadata,
-        cuts=preprocessing.cuts,
+        video_url=full_video_asset.video_url,
+        video_mime_type=local.video_mime_type,
+        video_metadata=local.video_metadata,
+        cuts=local.cuts,
     )
 
 
 def validate_agent_a_response(
-    preprocessing: PreprocessingResult, response: AgentAResponse
+    full_video_asset: FullVideoAssetResult, response: AgentAResponse
 ) -> List[str]:
     """
     Validate Agent A response entity registry invariants.
     """
+    _ = full_video_asset
     issues: List[str] = []
 
     seen_entity_ids: set[str] = set()

@@ -366,12 +366,13 @@ def write_full_video_asset_artifacts(
 def write_agent_a_artifacts(
     runtime_output: AgentARuntimeOutput,
     *,
-    video_path: str,
+    full_video_asset: FullVideoAssetResult,
     runs_dir: Path = Path("runs"),
     run_id: str | None = None,
     warnings: Sequence[WarningItem] | None = None,
     report_title: str | None = None,
 ) -> Path:
+    video_path = full_video_asset.local.video_path
     actual_run_id = run_id or generate_run_id(Path(video_path))
     run_dir, manifest = ensure_run_manifest(
         runs_dir=runs_dir,
@@ -393,15 +394,8 @@ def write_agent_a_artifacts(
         runtime_output.raw_response_text,
         encoding="utf-8",
     )
-
-    preprocessing = PreprocessingResult(
-        video_metadata=runtime_output.request.video_metadata,
-        cuts=runtime_output.request.cuts,
-        video_url=runtime_output.request.video_url,
-        video_mime_type=runtime_output.request.video_mime_type,
-    )
     write_agent_a_report(
-        preprocessing,
+        full_video_asset,
         runtime_output,
         stage_dir / "report.html",
         title=report_title,

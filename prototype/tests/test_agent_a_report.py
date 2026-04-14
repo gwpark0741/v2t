@@ -9,14 +9,15 @@ from v2t_prototype.models import (
     Character,
     Cut,
     EntityRegistry,
+    FullVideoAssetResult,
     Interval,
     KeyObject,
-    PreprocessingResult,
+    LocalPreprocessingResult,
     VideoMetadata,
 )
 
 
-def _make_sample_preprocessing_result() -> PreprocessingResult:
+def _make_sample_full_video_asset_result() -> FullVideoAssetResult:
     metadata = VideoMetadata(
         video_path="videos/sample.mp4",
         fps=30.0,
@@ -29,20 +30,25 @@ def _make_sample_preprocessing_result() -> PreprocessingResult:
         Cut(id="CUT_001", start_time=0.0, end_time=5.0),
         Cut(id="CUT_002", start_time=5.0, end_time=10.0),
     ]
-    return PreprocessingResult(
-        video_metadata=metadata,
-        cuts=cuts,
+    return FullVideoAssetResult(
+        local=LocalPreprocessingResult(
+            video_metadata=metadata,
+            cuts=cuts,
+            video_path="videos/sample.mp4",
+            video_mime_type="video/mp4",
+        ),
         video_url="gs://test-bucket/video.mp4",
-        video_mime_type="video/mp4",
+        gemini_file_name="files/sample",
+        upload_timestamp_utc="2026-04-14T00:00:00Z",
     )
 
 
-def _make_sample_runtime_output(preprocessing: PreprocessingResult) -> AgentARuntimeOutput:
+def _make_sample_runtime_output(full_video_asset: FullVideoAssetResult) -> AgentARuntimeOutput:
     request = AgentARequest(
-        video_url=preprocessing.video_url,
-        video_mime_type=preprocessing.video_mime_type,
-        video_metadata=preprocessing.video_metadata,
-        cuts=preprocessing.cuts,
+        video_url=full_video_asset.video_url,
+        video_mime_type=full_video_asset.local.video_mime_type,
+        video_metadata=full_video_asset.local.video_metadata,
+        cuts=full_video_asset.local.cuts,
     )
     response = AgentAResponse(
         entity_registry=EntityRegistry(
@@ -81,9 +87,9 @@ def _make_sample_runtime_output(preprocessing: PreprocessingResult) -> AgentARun
 
 
 def test_build_agent_a_report_html_includes_sections():
-    preprocessing = _make_sample_preprocessing_result()
-    runtime_output = _make_sample_runtime_output(preprocessing)
-    html = build_agent_a_report_html(preprocessing, runtime_output, title="Agent Report")
+    full_video_asset = _make_sample_full_video_asset_result()
+    runtime_output = _make_sample_runtime_output(full_video_asset)
+    html = build_agent_a_report_html(full_video_asset, runtime_output, title="Agent Report")
 
     assert "Agent Report" in html
     assert "video-player" in html
@@ -106,11 +112,11 @@ def test_build_agent_a_report_html_includes_sections():
 
 
 def test_write_agent_a_report_creates_file(tmp_path: Path):
-    preprocessing = _make_sample_preprocessing_result()
-    runtime_output = _make_sample_runtime_output(preprocessing)
+    full_video_asset = _make_sample_full_video_asset_result()
+    runtime_output = _make_sample_runtime_output(full_video_asset)
     output_file = tmp_path / "report.html"
 
-    result_path = write_agent_a_report(preprocessing, runtime_output, output_file, title="Report")
+    result_path = write_agent_a_report(full_video_asset, runtime_output, output_file, title="Report")
 
     assert result_path == output_file
     content = output_file.read_text()

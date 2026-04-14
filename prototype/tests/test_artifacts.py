@@ -118,21 +118,12 @@ def _sample_segment_prep_result() -> SegmentPrepResult:
 
 
 def _sample_agent_a_output() -> AgentARuntimeOutput:
+    full_video_asset = _sample_full_video_asset_result()
     request = AgentARequest(
-        video_url="https://example.com/full",
-        video_mime_type="video/mp4",
-        video_metadata=VideoMetadata(
-            video_path="/tmp/sample_video.mp4",
-            fps=24.0,
-            frame_count=240,
-            duration_seconds=10.0,
-            width=1920,
-            height=1080,
-        ),
-        cuts=[
-            Cut(id="CUT_001", start_time=0.0, end_time=4.0),
-            Cut(id="CUT_002", start_time=4.0, end_time=10.0),
-        ],
+        video_url=full_video_asset.video_url,
+        video_mime_type=full_video_asset.local.video_mime_type,
+        video_metadata=full_video_asset.local.video_metadata,
+        cuts=full_video_asset.local.cuts,
     )
     response = AgentAResponse(
         entity_registry=EntityRegistry(
@@ -336,6 +327,7 @@ def test_write_full_video_asset_artifacts_writes_canonical_files(tmp_path: Path)
 
 
 def test_write_agent_a_artifacts_writes_canonical_files_and_supports_reentry(tmp_path: Path):
+    full_video_asset = _sample_full_video_asset_result()
     result = _sample_agent_a_output()
     warnings = [
         WarningItem(
@@ -348,7 +340,7 @@ def test_write_agent_a_artifacts_writes_canonical_files_and_supports_reentry(tmp
 
     stage_dir = write_agent_a_artifacts(
         result,
-        video_path="/tmp/sample_video.mp4",
+        full_video_asset=full_video_asset,
         runs_dir=tmp_path,
         run_id="run_agent_a_001",
         warnings=warnings,
@@ -366,7 +358,7 @@ def test_write_agent_a_artifacts_writes_canonical_files_and_supports_reentry(tmp
     output_payload = json.loads((stage_dir / "output.json").read_text(encoding="utf-8"))
     warnings_payload = json.loads((stage_dir / "warnings.json").read_text(encoding="utf-8"))
 
-    assert input_payload["video_url"] == "https://example.com/full"
+    assert input_payload["video_url"] == full_video_asset.video_url
     assert output_payload["request"]["cuts"][0]["id"] == "CUT_001"
     assert output_payload["response"]["entity_registry"]["characters"][0]["id"] == "char_001"
     assert warnings_payload["stage"] == AGENT_A_STAGE_DIR
@@ -400,7 +392,7 @@ def test_write_agent_a_artifacts_writes_canonical_files_and_supports_reentry(tmp
 def test_write_agent_a_artifacts_writes_warnings_file_even_when_empty(tmp_path: Path):
     stage_dir = write_agent_a_artifacts(
         _sample_agent_a_output(),
-        video_path="/tmp/sample_video.mp4",
+        full_video_asset=_sample_full_video_asset_result(),
         runs_dir=tmp_path,
         run_id="run_agent_a_002",
         warnings=[],
