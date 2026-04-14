@@ -314,6 +314,45 @@ class Action(BaseModel):
         return self
 
 
+class AgentBCutInput(BaseModel):
+    cut_id: str
+    cut_start_time: float = Field(ge=0.0)
+    cut_end_time: float = Field(ge=0.0)
+    clip_video_url: str = Field(min_length=1)
+    clip_video_mime_type: str = Field(min_length=1)
+    entity_registry: EntityRegistry
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class AgentBCutOutput(BaseModel):
+    cut_id: str
+    raw_response_text: str
+    actions: List[Action]
+    validation_issues: List[str]
+    model: str = Field(min_length=1)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class AgentBAllCutsResult(BaseModel):
+    cut_outputs: List[AgentBCutOutput]
+    skipped_cut_ids: List[str] = Field(default_factory=list)
+    failed_cut_ids: List[str] = Field(default_factory=list)
+    total_actions: int = Field(ge=0)
+    unresolved_count: int = Field(ge=0)
+    reassigned_count: int = Field(ge=0)
+    warnings: List["WarningItem"] = Field(default_factory=list)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class AgentBResponse(BaseModel):
+    actions: List[Action]
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class Track(BaseModel):
     track_id: str
     track_type: TrackType
