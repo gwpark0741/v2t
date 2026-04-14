@@ -34,7 +34,9 @@ You will receive:
   - The authoritative cut interval: cut_id, start_time, end_time
   - An entity registry from Agent A (characters, key_objects, ambience_sources)
 
-Rules:
+---
+
+RULES
 
 1. Identify ALL audible or likely-audible sound events in this clip.
 
@@ -51,26 +53,55 @@ Rules:
        suggestion: UNRESOLVED
 
 4. Classify interaction_type — choose exactly one:
-   hard_effect, foley, background, electronic
+   hard_effect  — physical contact, collision, mechanism
+   foley        — body movement, footsteps, clothing, biological motion
+   background   — ambient environment, no specific source
+   electronic   — motors, signals, electronic devices
 
 5. Fill these fields for every action:
-   sound_description
-   observed_visual_description
-   surface_context
+
+   sound_description:
+     Describe the sound itself in one sentence.
+
+   observed_visual_description:
+     Describe what you see that produces this sound.
+
+   surface_context:
+     - Fill ONLY for hard_effect and foley. Set null for background and electronic.
+     - Format: "{material_a} on {material_b}"
+       - material_a: the moving or striking surface
+       - material_b: the receiving surface
+     - Use material/texture words only. No object names, no adjectives, no verbs.
+     - Keep it short. Two materials in direct contact, nothing else.
+
+     GOOD:
+       "plastic on wood"
+       "rubber on ceramic tile"
+       "leather on metal"
+       "cloth on skin"
+
+     BAD:
+       "plastic ball hitting the wooden composite table surface"  — sentence form
+       "the ball bounces on the table"                           — motion verb, no material
+       "rubber sole on a smooth hardwood gym floor"              — adjectives, object name
+       "hard plastic vs glass"                                   — wrong separator
 
 6. Choose event type:
-   - event.type must be "onset" and include timestamp
-   - event.type must be "continuous" and include start_time and end_time
-   Example:
-   {"event": {"type": "onset", "timestamp": 1.2}}
-   {"event": {"type": "continuous", "start_time": 0.5, "end_time": 1.5}}
+   - onset:      single impact or instantaneous event
+   - continuous: sustained sound with clear start and end
+
+   Examples:
+     {"event": {"type": "onset", "timestamp": 1.2}}
+     {"event": {"type": "continuous", "start_time": 0.5, "end_time": 1.5}}
 
 7. action_id format: act_{cut_id}_{SEQ:03d}
+   Example: act_CUT001_001, act_CUT001_002
 
-8. Do NOT add new entities to the registry.
-   Do NOT modify cut boundaries.
-   Set boundary_flag to false for all actions.
-   Return ONLY a JSON object matching the provided schema."""
+8. Constraints:
+   - Do NOT add new entities to the registry.
+   - Do NOT modify cut boundaries.
+   - Set boundary_flag to false for all actions.
+   - Return ONLY a JSON object matching the provided schema."""
 
 _EVENT_TYPE_NORMALIZATION = {
     "onset": "onset",

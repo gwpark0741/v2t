@@ -9,6 +9,7 @@ from v2t_prototype.agent_a_runtime import AgentARuntimeOutput
 from v2t_prototype.agent_b import build_agent_b_cut_input
 from v2t_prototype.agent_b_runtime import (
     DEFAULT_AGENT_B_MODEL,
+    DEFAULT_AGENT_B_SYSTEM_PROMPT,
     run_agent_b_all_cuts_parallel,
     run_agent_b_for_cut,
 )
@@ -172,6 +173,13 @@ def test_run_agent_b_for_cut_success_rewrites_reassign_and_forces_boundary_false
         file_uri=input_model.clip_video_url,
         mime_type=input_model.clip_video_mime_type,
     )
+
+
+def test_agent_b_system_prompt_includes_surface_formatting_rules():
+    assert 'Format: "{material_a} on {material_b}"' in DEFAULT_AGENT_B_SYSTEM_PROMPT
+    assert "Fill ONLY for hard_effect and foley. Set null for background and electronic." in DEFAULT_AGENT_B_SYSTEM_PROMPT
+    assert '"plastic on wood"' in DEFAULT_AGENT_B_SYSTEM_PROMPT
+    assert '"plastic ball hitting the wooden composite table surface"' in DEFAULT_AGENT_B_SYSTEM_PROMPT
 
 
 def test_run_agent_b_for_cut_retries_after_parse_error():
