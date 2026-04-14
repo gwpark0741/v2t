@@ -5,7 +5,9 @@ from pathlib import Path
 
 import pytest
 
+from v2t_prototype.agent_a_runtime import AgentARuntimeOutput
 from v2t_prototype.artifacts import (
+    AGENT_B_STAGE_DIR,
     FULL_VIDEO_ASSET_STAGE_DIR,
     LOCAL_PREPROCESSING_STAGE_DIR,
     RUN_MANIFEST_FILENAME,
@@ -18,18 +20,31 @@ from v2t_prototype.artifacts import (
     mark_stage_failed,
     require_completed_stage_output,
     write_stage_failure_artifacts,
+    write_agent_b_artifacts,
     write_full_video_asset_artifacts,
     write_local_preprocessing_artifacts,
     write_segment_prep_artifacts,
 )
 from v2t_prototype.models import (
+    Action,
+    AgentARequest,
+    AgentAResponse,
+    AgentBAllCutsResult,
+    AgentBCutOutput,
+    AmbienceSource,
+    Character,
     Cut,
+    ContinuousEvent,
+    EntityRegistry,
     FullVideoAssetResult,
+    Interval,
+    KeyObject,
     LocalPreprocessingResult,
     SegmentClip,
     SegmentPrepResult,
     SkippedCut,
     StageErrorRecord,
+    UnknownResolution,
     VideoMetadata,
     WarningItem,
 )
@@ -89,6 +104,105 @@ def _sample_segment_prep_result() -> SegmentPrepResult:
                 context={"cut_id": "CUT_002"},
             )
         ],
+    )
+
+
+def _sample_agent_a_output() -> AgentARuntimeOutput:
+    request = AgentARequest(
+        video_url="https://example.com/full",
+        video_mime_type="video/mp4",
+        video_metadata=VideoMetadata(
+            video_path="/tmp/sample_video.mp4",
+            fps=24.0,
+            frame_count=240,
+            duration_seconds=10.0,
+            width=1920,
+            height=1080,
+        ),
+        cuts=[
+            Cut(id="CUT_001", start_time=0.0, end_time=4.0),
+            Cut(id="CUT_002", start_time=4.0, end_time=10.0),
+        ],
+    )
+    response = AgentAResponse(
+        entity_registry=EntityRegistry(
+            characters=[
+                Character(
+                    id="char_001",
+                    label="Fighter",
+                    visual_description="Armored fighter",
+                    entry_exit_intervals=[Interval(start_time=0.0, end_time=10.0)],
+                    audibility="likely_audible",
+                )
+            ],
+            key_objects=[
+                KeyObject(
+                    id="obj_001",
+                    label="Sword",
+                    visual_description="Steel sword",
+                    material="steel",
+                    surface="polished",
+                    has_mechanism=False,
+                    audibility="audible",
+                )
+            ],
+            ambience_sources=[
+                AmbienceSource(
+                    id="amb_001",
+                    label="Yard",
+                    space_description="Open yard",
+                    distance_profile="mid",
+                    tonal_quality="dry",
+                )
+            ],
+        )
+    )
+    return AgentARuntimeOutput(
+        request=request,
+        response=response,
+        raw_response_text=response.model_dump_json(),
+    )
+
+
+def _sample_agent_b_result(*, warnings: list[WarningItem] | None = None) -> AgentBAllCutsResult:
+    return AgentBAllCutsResult(
+        cut_outputs=[
+            AgentBCutOutput(
+                cut_id="CUT_001",
+                raw_response_text='{"actions":[{"action_id":"raw_only_marker"}]}',
+                actions=[
+                    Action.model_validate(
+                        {
+                            "action_id": "act_CUT_001_001",
+                            "cut_id": "CUT_001",
+                            "primary_source_id": "UNKNOWN_OBJECT_CUT001_1",
+                            "unknown_resolution": UnknownResolution(
+                                suggestion="UNRESOLVED",
+                                reason="unclear source",
+                            ),
+                            "interaction_type": "hard_effect",
+                            "sound_description": "metal clash",
+                            "surface_context": "steel",
+                            "observed_visual_description": "swords collide",
+                            "event": ContinuousEvent(
+                                type="continuous",
+                                start_time=0.5,
+                                end_time=1.5,
+                            ),
+                            "boundary_flag": False,
+                        }
+                    )
+                ],
+                validation_issues=["AGENT_B_UNKNOWN_SOURCE_ID"],
+                model="gemini-2.5-pro",
+            )
+        ],
+        skipped_cut_ids=["CUT_002"],
+        failed_cut_ids=["CUT_003"],
+        total_actions=1,
+        unresolved_count=1,
+        reassigned_count=0,
+        warnings=list(warnings or []),
     )
 
 
@@ -195,6 +309,100 @@ def test_write_segment_prep_artifacts_writes_canonical_files(tmp_path: Path):
     manifest = load_run_manifest(tmp_path / "run_segment_001")
     stage_statuses = {stage.stage: stage for stage in manifest.stages}
     assert stage_statuses[SEGMENT_PREP_STAGE_DIR].status == "completed"
+
+
+def test_write_agent_b_artifacts_writes_canonical_files_and_supports_reentry(tmp_path: Path):
+    run_id = "run_agent_b_001"
+    write_segment_prep_artifacts(
+        _sample_segment_prep_result(),
+        runs_dir=tmp_path,
+        run_id=run_id,
+        video_path="/tmp/sample_video.mp4",
+    )
+    result = _sample_agent_b_result(
+        warnings=[
+            WarningItem(
+                code="AGENT_B_CUT_RUNTIME_FAILURE",
+                severity="warning",
+                message="runtime failed",
+                context={"cut_id": "CUT_003"},
+            )
+        ]
+    )
+
+    stage_dir = write_agent_b_artifacts(
+        result,
+        _sample_agent_a_output(),
+        video_path="/tmp/sample_video.mp4",
+        runs_dir=tmp_path,
+        run_id=run_id,
+        report_title="Stage 05 Report",
+    )
+
+    assert stage_dir == tmp_path / run_id / AGENT_B_STAGE_DIR
+    assert (stage_dir / "output.json").exists()
+    assert (stage_dir / "warnings.json").exists()
+    assert (stage_dir / "report.html").exists()
+    assert (stage_dir / "per_cut" / "CUT_001" / "input.json").exists()
+    assert (stage_dir / "per_cut" / "CUT_001" / "output.json").exists()
+    assert (stage_dir / "per_cut" / "CUT_001" / "raw_response.txt").exists()
+
+    input_payload = json.loads(
+        (stage_dir / "per_cut" / "CUT_001" / "input.json").read_text(encoding="utf-8")
+    )
+    output_payload = json.loads((stage_dir / "output.json").read_text(encoding="utf-8"))
+    warnings_payload = json.loads((stage_dir / "warnings.json").read_text(encoding="utf-8"))
+
+    assert input_payload["cut_id"] == "CUT_001"
+    assert input_payload["clip_video_url"].endswith("cut001")
+    assert output_payload["cut_outputs"][0]["cut_id"] == "CUT_001"
+    assert warnings_payload["stage"] == AGENT_B_STAGE_DIR
+    assert warnings_payload["warnings"][0]["code"] == "AGENT_B_CUT_RUNTIME_FAILURE"
+    assert "Stage 05 Report" in (stage_dir / "report.html").read_text(encoding="utf-8")
+
+    manifest = load_run_manifest(tmp_path / run_id)
+    stage_statuses = {stage.stage: stage for stage in manifest.stages}
+    assert stage_statuses[AGENT_B_STAGE_DIR].status == "completed"
+
+    bundle = load_stage_bundle(
+        tmp_path / run_id,
+        AGENT_B_STAGE_DIR,
+        AgentBAllCutsResult,
+    )
+    assert bundle.status == "completed"
+    assert bundle.output == result
+    assert bundle.output_path == stage_dir / "output.json"
+    assert bundle.warnings_path == stage_dir / "warnings.json"
+    assert bundle.report_path == stage_dir / "report.html"
+
+    reentry_output = require_completed_stage_output(
+        tmp_path / run_id,
+        AGENT_B_STAGE_DIR,
+        AgentBAllCutsResult,
+    )
+    assert reentry_output == result
+
+
+def test_write_agent_b_artifacts_writes_warnings_file_even_when_empty(tmp_path: Path):
+    run_id = "run_agent_b_002"
+    write_segment_prep_artifacts(
+        _sample_segment_prep_result(),
+        runs_dir=tmp_path,
+        run_id=run_id,
+        video_path="/tmp/sample_video.mp4",
+    )
+
+    stage_dir = write_agent_b_artifacts(
+        _sample_agent_b_result(warnings=[]),
+        _sample_agent_a_output(),
+        video_path="/tmp/sample_video.mp4",
+        runs_dir=tmp_path,
+        run_id=run_id,
+    )
+
+    warnings_payload = json.loads((stage_dir / "warnings.json").read_text(encoding="utf-8"))
+    assert warnings_payload["stage"] == AGENT_B_STAGE_DIR
+    assert warnings_payload["warnings"] == []
 
 
 def test_manifest_tracks_stage_progress_across_stage_01_and_02(tmp_path: Path):
@@ -371,6 +579,42 @@ def test_write_stage_failure_artifacts_records_error_and_failed_status(tmp_path:
     assert bundle.output is None
     assert bundle.error == error
     assert [item.code for item in bundle.warnings] == ["UPLOAD_RETRY_EXHAUSTED"]
+
+
+def test_write_stage_failure_artifacts_records_stage_05_error_and_failed_status(tmp_path: Path):
+    error = StageErrorRecord(
+        stage=AGENT_B_STAGE_DIR,
+        failed_at_utc="2026-04-14T08:00:00Z",
+        attempt_count=2,
+        retryable=False,
+        error_class="AgentBArtifactWriteError",
+        message="Stage 05 artifacts could not be written.",
+        context={"cut_id": "CUT_001"},
+    )
+
+    stage_dir = write_stage_failure_artifacts(
+        stage=AGENT_B_STAGE_DIR,
+        video_path="/tmp/sample_video.mp4",
+        error=error,
+        runs_dir=tmp_path,
+        run_id="run_009",
+        warnings=[],
+    )
+
+    assert stage_dir == tmp_path / "run_009" / AGENT_B_STAGE_DIR
+    assert (stage_dir / "warnings.json").exists()
+    assert (stage_dir / "error.json").exists()
+    assert not (stage_dir / "output.json").exists()
+
+    manifest = load_run_manifest(tmp_path / "run_009")
+    stage_statuses = {stage.stage: stage for stage in manifest.stages}
+    assert stage_statuses[AGENT_B_STAGE_DIR].status == "failed"
+    assert stage_statuses[AGENT_B_STAGE_DIR].error_message == error.message
+
+    bundle = load_stage_bundle(tmp_path / "run_009", AGENT_B_STAGE_DIR)
+    assert bundle.status == "failed"
+    assert bundle.output is None
+    assert bundle.error == error
 
 
 def test_mark_stage_failed_updates_manifest_status_and_error_message(tmp_path: Path):

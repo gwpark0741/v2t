@@ -9,8 +9,12 @@ from typing import Sequence, TypeVar
 
 from pydantic import BaseModel
 
+from .agent_a_runtime import AgentARuntimeOutput
+from .agent_b import build_agent_b_cut_input
+from .agent_b_report import write_agent_b_report
 from .full_video_asset_report import write_full_video_asset_report
 from .models import (
+    AgentBAllCutsResult,
     FullVideoAssetResult,
     LoadedStageBundle,
     LocalPreprocessingResult,
@@ -384,6 +388,81 @@ def write_segment_prep_artifacts(
         source_video_path=video_path,
     )
     write_run_manifest(run_dir, mark_stage_completed(manifest, stage_dir=SEGMENT_PREP_STAGE_DIR))
+    return stage_dir
+
+
+def write_agent_b_artifacts(
+    result: AgentBAllCutsResult,
+    agent_a_output: AgentARuntimeOutput,
+    *,
+    video_path: str,
+    runs_dir: Path = Path("runs"),
+    run_id: str | None = None,
+    report_title: str | None = None,
+) -> Path:
+    actual_run_id = run_id or generate_run_id(Path(video_path))
+    run_dir, manifest = ensure_run_manifest(
+        runs_dir=runs_dir,
+        run_id=actual_run_id,
+        video_path=video_path,
+    )
+    segment_prep = require_completed_stage_output(
+        run_dir,
+        SEGMENT_PREP_STAGE_DIR,
+        SegmentPrepResult,
+    )
+    clip_by_cut_id = {clip.cut_id: clip for clip in segment_prep.clips}
+    cut_by_id = {cut.id: cut for cut in agent_a_output.request.cuts}
+
+    stage_dir = run_dir / AGENT_B_STAGE_DIR
+    artifacts = StageArtifacts(stage_dir)
+    artifacts.write_output(result)
+    artifacts.write_warnings(
+        stage=AGENT_B_STAGE_DIR,
+        warnings=list(result.warnings),
+    )
+
+    for cut_output in result.cut_outputs:
+        clip = clip_by_cut_id.get(cut_output.cut_id)
+        if clip is None:
+            raise StageArtifactLoadError(
+                f"Stage 04 clip is missing for Stage 05 cut output {cut_output.cut_id}"
+            )
+
+        cut = cut_by_id.get(cut_output.cut_id)
+        if cut is None:
+            raise StageArtifactLoadError(
+                f"Agent A cut metadata is missing for Stage 05 cut output {cut_output.cut_id}"
+            )
+
+        per_cut_dir = stage_dir / "per_cut" / cut_output.cut_id
+        per_cut_dir.mkdir(parents=True, exist_ok=True)
+
+        cut_input = build_agent_b_cut_input(
+            clip=clip,
+            cut=cut,
+            entity_registry=agent_a_output.response.entity_registry,
+        )
+        (per_cut_dir / "input.json").write_text(
+            cut_input.model_dump_json(indent=2),
+            encoding="utf-8",
+        )
+        (per_cut_dir / "output.json").write_text(
+            cut_output.model_dump_json(indent=2),
+            encoding="utf-8",
+        )
+        (per_cut_dir / "raw_response.txt").write_text(
+            cut_output.raw_response_text,
+            encoding="utf-8",
+        )
+
+    write_agent_b_report(
+        result,
+        agent_a_output,
+        stage_dir / "report.html",
+        title=report_title,
+    )
+    write_run_manifest(run_dir, mark_stage_completed(manifest, stage_dir=AGENT_B_STAGE_DIR))
     return stage_dir
 
 
