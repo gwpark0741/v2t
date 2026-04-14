@@ -410,9 +410,17 @@ class SurfaceJudgment(BaseModel):
     surface_context_a: str | None = None
     surface_context_b: str | None = None
     interaction_type: InteractionType
-    result: str
+    result: Literal["COMPATIBLE", "INCOMPATIBLE"]
     reason: str
-    model: str
+    source: Literal[
+        "null_both",
+        "null_one_side",
+        "normalize_match",
+        "cache_hit",
+        "flash",
+        "flash_error",
+    ]
+    model: str | None = None
 
     model_config = ConfigDict(extra="forbid")
 
@@ -422,5 +430,8 @@ class AgentCResult(BaseModel):
     surface_judgments: List[SurfaceJudgment] = Field(default_factory=list)
     merge_group_count: int = Field(ge=0)
     flash_call_count: int = Field(ge=0)
+    cache_hit_count: int = Field(ge=0)
+    total_flash_latency_ms: float = Field(ge=0.0)
+    per_call_flash_latency_ms: List[float] = Field(default_factory=list)
 
     model_config = ConfigDict(extra="forbid")

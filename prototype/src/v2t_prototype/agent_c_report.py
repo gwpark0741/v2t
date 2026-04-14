@@ -18,6 +18,11 @@ def build_agent_c_report_html(
     unresolved_unknowns = pipeline_result.unresolved_unknowns
     warnings = pipeline_result.warnings
     total_action_count = sum(len(track.events) for track in tracks) + len(unresolved_unknowns)
+    average_flash_latency_ms = (
+        result.total_flash_latency_ms / result.flash_call_count
+        if result.flash_call_count
+        else 0.0
+    )
 
     track_rows = "".join(
         (
@@ -78,8 +83,9 @@ def build_agent_c_report_html(
                 f"<td>{escape(item.surface_context_a or '-')}</td>"
                 f"<td>{escape(item.surface_context_b or '-')}</td>"
                 f"<td>{escape(item.result)}</td>"
+                f"<td><span class='badge badge-{escape(item.source)}'>{escape(item.source)}</span></td>"
                 f"<td>{escape(item.reason)}</td>"
-                f"<td>{escape(item.model)}</td>"
+                f"<td>{escape(item.model or '-')}</td>"
                 "</tr>"
             )
             for item in result.surface_judgments
@@ -89,12 +95,19 @@ def build_agent_c_report_html(
         <thead>
           <tr>
             <th>Action A</th><th>Action B</th><th>Interaction</th><th>Surface A</th>
-            <th>Surface B</th><th>Result</th><th>Reason</th><th>Model</th>
+            <th>Surface B</th><th>Result</th><th>Source</th><th>Reason</th><th>Model</th>
           </tr>
         </thead>
         <tbody>{rows}</tbody>
       </table>
 """
+    per_call_latency_section = "<p class='muted'>No Flash calls recorded.</p>"
+    if result.per_call_flash_latency_ms:
+        latency_items = "".join(
+            f"<li>{index + 1}. {latency_ms:.2f} ms</li>"
+            for index, latency_ms in enumerate(result.per_call_flash_latency_ms)
+        )
+        per_call_latency_section = f"<ol>{latency_items}</ol>"
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -157,6 +170,30 @@ def build_agent_c_report_html(
     .muted {{
       color: #5e6575;
     }}
+    .badge {{
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+      white-space: nowrap;
+    }}
+    .badge-flash {{
+      background: #dbeafe;
+      color: #1d4ed8;
+    }}
+    .badge-cache_hit {{
+      background: #e5e7eb;
+      color: #374151;
+    }}
+    .badge-normalize_match, .badge-null_both, .badge-null_one_side {{
+      background: #dcfce7;
+      color: #166534;
+    }}
+    .badge-flash_error {{
+      background: #fee2e2;
+      color: #b91c1c;
+    }}
   </style>
 </head>
 <body>
@@ -170,6 +207,9 @@ def build_agent_c_report_html(
         <div class="label">Unresolved Unknown Count</div><div>{len(unresolved_unknowns)}</div>
         <div class="label">Warning Count</div><div>{len(warnings)}</div>
         <div class="label">Flash Call Count</div><div>{result.flash_call_count}</div>
+        <div class="label">Cache Hit Count</div><div>{result.cache_hit_count}</div>
+        <div class="label">Total Flash Latency (ms)</div><div>{result.total_flash_latency_ms:.2f}</div>
+        <div class="label">Average Flash Latency (ms)</div><div>{average_flash_latency_ms:.2f}</div>
       </div>
     </section>
     <section class="card">
@@ -207,6 +247,10 @@ def build_agent_c_report_html(
     <section class="card">
       <h2>Surface Judgments</h2>
       {surface_judgment_section}
+    </section>
+    <section class="card">
+      <h2>Per-Call Flash Latency</h2>
+      {per_call_latency_section}
     </section>
   </div>
 </body>

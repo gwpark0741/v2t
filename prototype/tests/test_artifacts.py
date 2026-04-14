@@ -49,6 +49,7 @@ from v2t_prototype.models import (
     SegmentClip,
     SegmentPrepResult,
     SkippedCut,
+    SurfaceJudgment,
     StageErrorRecord,
     Track,
     TrackManifest,
@@ -215,7 +216,15 @@ def _sample_agent_b_result(*, warnings: list[WarningItem] | None = None) -> Agen
     )
 
 
-def _sample_agent_c_result(*, warnings: list[WarningItem] | None = None) -> AgentCResult:
+def _sample_agent_c_result(
+    *,
+    warnings: list[WarningItem] | None = None,
+    surface_judgments: list[SurfaceJudgment] | None = None,
+    flash_call_count: int = 0,
+    cache_hit_count: int = 0,
+    total_flash_latency_ms: float = 0.0,
+    per_call_flash_latency_ms: list[float] | None = None,
+) -> AgentCResult:
     return AgentCResult(
         pipeline_result=PipelineResult(
             track_manifest=TrackManifest(
@@ -242,9 +251,12 @@ def _sample_agent_c_result(*, warnings: list[WarningItem] | None = None) -> Agen
             ],
             warnings=list(warnings or []),
         ),
-        surface_judgments=[],
+        surface_judgments=list(surface_judgments or []),
         merge_group_count=1,
-        flash_call_count=0,
+        flash_call_count=flash_call_count,
+        cache_hit_count=cache_hit_count,
+        total_flash_latency_ms=total_flash_latency_ms,
+        per_call_flash_latency_ms=list(per_call_flash_latency_ms or []),
     )
 
 
@@ -596,6 +608,42 @@ def test_write_agent_c_artifacts_writes_warnings_file_even_when_empty(tmp_path: 
     assert warnings_payload["stage"] == AGENT_C_STAGE_DIR
     assert warnings_payload["warnings"] == []
     assert surface_payload == {"surface_judgments": []}
+
+
+def test_write_agent_c_artifacts_persists_surface_judgments(tmp_path: Path):
+    stage_dir = write_agent_c_artifacts(
+        _sample_agent_c_result(
+            surface_judgments=[
+                SurfaceJudgment(
+                    action_id_a="act_001",
+                    action_id_b="act_002",
+                    interaction_type="hard_effect",
+                    surface_context_a="glass table",
+                    surface_context_b="wood composite table",
+                    result="INCOMPATIBLE",
+                    reason="Different material families.",
+                    source="flash",
+                    model="gemini-2.5-flash",
+                )
+            ],
+            flash_call_count=1,
+            cache_hit_count=1,
+            total_flash_latency_ms=18.75,
+            per_call_flash_latency_ms=[12.5, 6.25],
+        ),
+        video_path="/tmp/sample_video.mp4",
+        runs_dir=tmp_path,
+        run_id="run_agent_c_003",
+    )
+
+    surface_payload = json.loads((stage_dir / "surface_judgments.json").read_text(encoding="utf-8"))
+    assert surface_payload["surface_judgments"][0]["source"] == "flash"
+    assert surface_payload["surface_judgments"][0]["model"] == "gemini-2.5-flash"
+    output_payload = json.loads((stage_dir / "output.json").read_text(encoding="utf-8"))
+    assert output_payload["flash_call_count"] == 1
+    assert output_payload["cache_hit_count"] == 1
+    assert output_payload["total_flash_latency_ms"] == 18.75
+    assert output_payload["per_call_flash_latency_ms"] == [12.5, 6.25]
 
 
 def test_manifest_tracks_stage_progress_across_stage_01_and_02(tmp_path: Path):

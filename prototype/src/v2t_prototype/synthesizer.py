@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import re
 
+from collections import defaultdict
 from typing import Callable, Dict, List, Optional
 
 from .merge_rules import canonical_should_merge
@@ -13,7 +14,9 @@ from .models import (
     TrackManifest,
     TrackType,
     UnresolvedUnknown,
+    WarningItem,
 )
+from .surface_judge import SurfaceJudge, normalize_surface
 
 
 def _is_unresolved_unknown(action: Action) -> bool:
@@ -112,13 +115,103 @@ def _build_track_id(
     return f"{source_id}__{interaction_type}__{surface_key}"
 
 
+class _UnionFind:
+    def __init__(self, elements: List[str]):
+        self._parent = {element: element for element in elements}
+
+    def find(self, element: str) -> str:
+        while self._parent[element] != element:
+            self._parent[element] = self._parent[self._parent[element]]
+            element = self._parent[element]
+        return element
+
+    def union(self, left: str, right: str) -> None:
+        left_root = self.find(left)
+        right_root = self.find(right)
+        if left_root != right_root:
+            self._parent[right_root] = left_root
+
+
+def _surface_variant_key(action: Action) -> str:
+    if action.surface_context is None:
+        return "__null__"
+    return normalize_surface(action.surface_context)
+
+
+def build_merge_groups(
+    actions: List[Action],
+    surface_judge: SurfaceJudge,
+) -> List[List[Action]]:
+    """Merge same source+interaction actions by unique surface variant compatibility."""
+    variant_map: Dict[str, Action] = {}
+    for action in actions:
+        key = _surface_variant_key(action)
+        if key not in variant_map:
+            variant_map[key] = action
+
+    variants = list(variant_map.items())
+    compatibility: Dict[tuple[str, str], bool] = {}
+    for index, (key_a, representative_a) in enumerate(variants):
+        for key_b, representative_b in variants[index + 1 :]:
+            judgment = surface_judge.judge(
+                representative_a,
+                representative_b,
+                actions[0].interaction_type,
+            )
+            compatibility[(key_a, key_b)] = judgment.result == "COMPATIBLE"
+
+    union_find = _UnionFind([key for key, _ in variants])
+    for (key_a, key_b), is_compatible in compatibility.items():
+        if is_compatible:
+            union_find.union(key_a, key_b)
+
+    grouped_actions: Dict[str, List[Action]] = defaultdict(list)
+    for action in actions:
+        grouped_actions[union_find.find(_surface_variant_key(action))].append(action)
+
+    return list(grouped_actions.values())
+
+
+def _greedy_merge_groups(
+    actions: List[Action],
+    surface_compatibility: Optional[Callable[[str, str], bool]] = None,
+) -> List[List[Action]]:
+    groups: List[List[Action]] = []
+    for action in actions:
+        matched = False
+        for group in groups:
+            if canonical_should_merge(group[0], action, surface_compatibility):
+                group.append(action)
+                matched = True
+                break
+        if not matched:
+            groups.append([action])
+    return groups
+
+
+def _all_null_surface_warning(group: List[Action]) -> WarningItem:
+    return WarningItem(
+        code="SURFACE_ALL_NULL",
+        severity="info",
+        message="All actions in the merge group had null surface_context.",
+        context={
+            "source_entity_id": group[0].primary_source_id,
+            "interaction_type": group[0].interaction_type,
+            "action_ids": [entry.action_id for entry in group],
+        },
+    )
+
+
 def synthesize_tracks(
     actions: List[Action],
     surface_compatibility: Optional[Callable[[str, str], bool]] = None,
     source_entity_kind_by_id: Optional[Dict[str, str]] = None,
+    surface_judge: Optional[SurfaceJudge] = None,
 ) -> PipelineResult:
-    groups: List[List[Action]] = []
     unresolved_unknowns: List[UnresolvedUnknown] = []
+    grouped_actions: Dict[tuple[str, str], List[Action]] = {}
+    groups: List[List[Action]] = []
+    warnings: List[WarningItem] = []
 
     for action in actions:
         if _is_unresolved_unknown(action):
@@ -134,16 +227,19 @@ def synthesize_tracks(
             continue
 
         resolved = _resolved_action(action)
-        matched = False
-        for group in groups:
-            representative = group[0]
-            if canonical_should_merge(representative, resolved, surface_compatibility):
-                group.append(resolved)
-                matched = True
-                break
+        bucket_key = (resolved.primary_source_id, resolved.interaction_type)
+        grouped_actions.setdefault(bucket_key, []).append(resolved)
 
-        if not matched:
-            groups.append([resolved])
+    for (_, interaction_type), bucket_actions in grouped_actions.items():
+        if interaction_type in {"background", "electronic"}:
+            groups.append(list(bucket_actions))
+            continue
+
+        if interaction_type in {"hard_effect", "foley"} and surface_judge is not None:
+            groups.extend(build_merge_groups(bucket_actions, surface_judge))
+            continue
+
+        groups.extend(_greedy_merge_groups(bucket_actions, surface_compatibility))
 
     tracks: List[Track] = []
     for group in groups:
@@ -154,6 +250,8 @@ def synthesize_tracks(
         source_id = group[0].primary_source_id
         track_type = _track_type_for(source_id, source_entity_kind_by_id)
         surface_summary = _longest_non_null(surfaces)
+        if group[0].interaction_type in {"hard_effect", "foley"} and not surfaces:
+            warnings.append(_all_null_surface_warning(group))
         surface_key = _surface_key_for_group(group, surface_summary)
         track_id = _build_track_id(source_id, group[0].interaction_type, surface_key)
 
@@ -174,5 +272,5 @@ def synthesize_tracks(
     return PipelineResult(
         track_manifest=manifest,
         unresolved_unknowns=unresolved_unknowns,
-        warnings=[],
+        warnings=warnings,
     )

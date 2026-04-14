@@ -2,6 +2,7 @@ import unittest
 
 from v2t_prototype import PipelineResult, UnknownResolution
 from v2t_prototype.synthesizer import synthesize_tracks
+from v2t_prototype.surface_judge import SurfaceJudgmentResult
 
 
 def make_action(
@@ -243,3 +244,82 @@ class SynthesizerTest(unittest.TestCase):
                 for track in missing_tracks
             )
         )
+
+    def test_surface_judge_groups_variants_by_representative_pairs(self):
+        class FakeSurfaceJudge:
+            def __init__(self):
+                self.calls = []
+
+            def judge(self, action_a, action_b, interaction_type):
+                self.calls.append((action_a.surface_context, action_b.surface_context, interaction_type))
+                surfaces = {action_a.surface_context, action_b.surface_context}
+                if surfaces == {"glass table", "glass-topped table"}:
+                    return SurfaceJudgmentResult(
+                        result="COMPATIBLE",
+                        reason="Equivalent glass table surfaces.",
+                        source="flash",
+                        representative_surface="glass-topped table",
+                    )
+                return SurfaceJudgmentResult(
+                    result="INCOMPATIBLE",
+                    reason="Different surface family.",
+                    source="flash",
+                    representative_surface=None,
+                )
+
+        actions = [
+            make_action("a1", "obj_001", "hard_effect", "tap", "glass table", 0.1),
+            make_action("a2", "obj_001", "hard_effect", "tap", "glass-topped table", 0.2),
+            make_action("a3", "obj_001", "hard_effect", "tap", "rubber mat", 0.3),
+            make_action("a4", "obj_001", "hard_effect", "tap", "glass table", 0.4),
+        ]
+
+        judge = FakeSurfaceJudge()
+        result = synthesize_tracks(actions, surface_judge=judge)
+
+        self.assertEqual(2, len(result.track_manifest.tracks))
+        self.assertEqual(3, len(judge.calls))
+
+    def test_background_and_electronic_skip_surface_judge(self):
+        class FakeSurfaceJudge:
+            def __init__(self):
+                self.calls = []
+
+            def judge(self, action_a, action_b, interaction_type):
+                self.calls.append((action_a.action_id, action_b.action_id, interaction_type))
+                return SurfaceJudgmentResult(
+                    result="INCOMPATIBLE",
+                    reason="should not be used",
+                    source="flash",
+                    representative_surface=None,
+                )
+
+        background_actions = [
+            make_action("bg1", "amb_001", "background", "tone", None, 0.0),
+            make_action("bg2", "amb_001", "background", "tone", "different", 0.3),
+        ]
+        electronic_actions = [
+            make_action("el1", "obj_001", "electronic", "hum", None, 0.4),
+            make_action("el2", "obj_001", "electronic", "hum", "panel", 0.8),
+        ]
+
+        judge = FakeSurfaceJudge()
+        result = synthesize_tracks(background_actions + electronic_actions, surface_judge=judge)
+
+        self.assertEqual(2, len(result.track_manifest.tracks))
+        self.assertEqual([], judge.calls)
+
+    def test_all_null_surface_group_emits_info_warning_when_surface_judge_enabled(self):
+        class FakeSurfaceJudge:
+            def judge(self, action_a, action_b, interaction_type):
+                raise AssertionError("single null variant should not trigger judge")
+
+        actions = [
+            make_action("null1", "char_001", "foley", "step", None, 0.1),
+            make_action("null2", "char_001", "foley", "step repeat", None, 0.2),
+        ]
+
+        result = synthesize_tracks(actions, surface_judge=FakeSurfaceJudge())
+
+        self.assertEqual(1, len(result.track_manifest.tracks))
+        self.assertEqual(["SURFACE_ALL_NULL"], [item.code for item in result.warnings])

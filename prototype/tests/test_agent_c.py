@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from v2t_prototype.agent_c import run_agent_c
 from v2t_prototype.models import (
     Action,
@@ -14,6 +16,27 @@ from v2t_prototype.models import (
     OnsetEvent,
     UnknownResolution,
 )
+
+
+class _FakeResponse:
+    def __init__(self, text: str):
+        self.text = text
+
+
+class _FakeModels:
+    def __init__(self, responses=None, exc: Exception | None = None):
+        self._responses = list(responses or [])
+        self._exc = exc
+
+    def generate_content(self, **kwargs: Any) -> _FakeResponse:
+        if self._exc is not None:
+            raise self._exc
+        return _FakeResponse(self._responses.pop(0))
+
+
+class _FakeClient:
+    def __init__(self, responses=None, exc: Exception | None = None):
+        self.models = _FakeModels(responses=responses, exc=exc)
 
 
 def _entity_registry() -> EntityRegistry:
@@ -111,6 +134,9 @@ def test_run_agent_c_synthesizes_tracks_and_defaults_surface_judgments():
     )
 
     assert result.flash_call_count == 0
+    assert result.cache_hit_count == 0
+    assert result.total_flash_latency_ms == 0.0
+    assert result.per_call_flash_latency_ms == []
     assert result.surface_judgments == []
     assert result.merge_group_count == 1
     assert len(result.pipeline_result.track_manifest.tracks) == 1
@@ -194,7 +220,6 @@ def test_run_agent_c_converts_validation_issues_to_warnings(monkeypatch):
     def fake_validate_pipeline_result(_result):
         return [
             "duplicate track_id trk_001",
-            "duplicate unresolved unknown UNKNOWN_1",
             "misc warning",
         ]
 
@@ -230,9 +255,62 @@ def test_run_agent_c_converts_validation_issues_to_warnings(monkeypatch):
     warning_codes = [item.code for item in result.pipeline_result.warnings]
     assert warning_codes == [
         "AGENT_C_DUPLICATE_TRACK_ID",
-        "AGENT_C_DUPLICATE_UNRESOLVED_UNKNOWN",
         "AGENT_C_PIPELINE_VALIDATION_WARNING",
     ]
+
+
+def test_run_agent_c_keeps_duplicate_unresolved_occurrences_without_warning():
+    result = run_agent_c(
+        _agent_b_result(
+            cut_outputs=[
+                AgentBCutOutput(
+                    cut_id="CUT_003",
+                    raw_response_text="{}",
+                    actions=[
+                        Action(
+                            action_id="act_unknown_001",
+                            cut_id="CUT_003",
+                            primary_source_id="UNKNOWN_CHARACTER_CUT003_1",
+                            unknown_resolution=UnknownResolution(
+                                suggestion="UNRESOLVED",
+                                reason="opponent is off-screen",
+                            ),
+                            interaction_type="hard_effect",
+                            sound_description="opponent paddle hit",
+                            surface_context="plastic on rubber",
+                            observed_visual_description="The ball is returned from off-screen.",
+                            event=OnsetEvent(type="onset", timestamp=1.4),
+                            boundary_flag=False,
+                        ),
+                        Action(
+                            action_id="act_unknown_002",
+                            cut_id="CUT_003",
+                            primary_source_id="UNKNOWN_CHARACTER_CUT003_1",
+                            unknown_resolution=UnknownResolution(
+                                suggestion="UNRESOLVED",
+                                reason="opponent is still off-screen",
+                            ),
+                            interaction_type="hard_effect",
+                            sound_description="opponent paddle hit again",
+                            surface_context="plastic on rubber",
+                            observed_visual_description="The ball is returned from off-screen for a second time.",
+                            event=OnsetEvent(type="onset", timestamp=2.62),
+                            boundary_flag=False,
+                        ),
+                    ],
+                    validation_issues=[],
+                    model="gemini-2.5-pro",
+                )
+            ]
+        ),
+        _entity_registry(),
+    )
+
+    assert [item.unknown_id for item in result.pipeline_result.unresolved_unknowns] == [
+        "UNKNOWN_CHARACTER_CUT003_1",
+        "UNKNOWN_CHARACTER_CUT003_1",
+    ]
+    assert [item.code for item in result.pipeline_result.warnings] == []
 
 
 def test_run_agent_c_marks_empty_result_as_warning():
@@ -244,3 +322,105 @@ def test_run_agent_c_marks_empty_result_as_warning():
     assert result.pipeline_result.track_manifest.tracks == []
     assert result.pipeline_result.unresolved_unknowns == []
     assert [item.code for item in result.pipeline_result.warnings] == ["AGENT_C_EMPTY_RESULT"]
+
+
+def test_run_agent_c_records_surface_judgments_and_flash_calls():
+    result = run_agent_c(
+        _agent_b_result(
+            cut_outputs=[
+                AgentBCutOutput(
+                    cut_id="CUT_001",
+                    raw_response_text="{}",
+                    actions=[
+                        Action(
+                            action_id="act_001",
+                            cut_id="CUT_001",
+                            primary_source_id="obj_001",
+                            interaction_type="hard_effect",
+                            sound_description="ball hits table",
+                            surface_context="glass table",
+                            observed_visual_description="ball bounces on a table",
+                            event=OnsetEvent(type="onset", timestamp=0.3),
+                            boundary_flag=False,
+                        ),
+                        Action(
+                            action_id="act_002",
+                            cut_id="CUT_001",
+                            primary_source_id="obj_001",
+                            interaction_type="hard_effect",
+                            sound_description="ball hits table again",
+                            surface_context="wood composite table",
+                            observed_visual_description="ball bounces on the same table",
+                            event=OnsetEvent(type="onset", timestamp=0.6),
+                            boundary_flag=False,
+                        ),
+                    ],
+                    validation_issues=[],
+                    model="gemini-2.5-pro",
+                )
+            ]
+        ),
+        _entity_registry(),
+        flash_client=_FakeClient(
+            responses=['{"result":"COMPATIBLE","reason":"Same table surface."}']
+        ),
+    )
+
+    assert result.flash_call_count == 1
+    assert result.cache_hit_count == 0
+    assert result.total_flash_latency_ms >= 0.0
+    assert len(result.per_call_flash_latency_ms) == 1
+    assert len(result.surface_judgments) == 1
+    assert result.surface_judgments[0].source == "flash"
+    assert result.surface_judgments[0].model == "gemini-2.5-flash"
+    assert len(result.pipeline_result.track_manifest.tracks) == 1
+
+
+def test_run_agent_c_surfaces_flash_parse_errors_as_warnings():
+    result = run_agent_c(
+        _agent_b_result(
+            cut_outputs=[
+                AgentBCutOutput(
+                    cut_id="CUT_001",
+                    raw_response_text="{}",
+                    actions=[
+                        Action(
+                            action_id="act_001",
+                            cut_id="CUT_001",
+                            primary_source_id="obj_001",
+                            interaction_type="hard_effect",
+                            sound_description="ball hits glass",
+                            surface_context="glass table",
+                            observed_visual_description="ball bounces on the left side",
+                            event=OnsetEvent(type="onset", timestamp=0.3),
+                            boundary_flag=False,
+                        ),
+                        Action(
+                            action_id="act_002",
+                            cut_id="CUT_001",
+                            primary_source_id="obj_001",
+                            interaction_type="hard_effect",
+                            sound_description="ball hits wood",
+                            surface_context="wood composite table",
+                            observed_visual_description="ball bounces on the right side",
+                            event=OnsetEvent(type="onset", timestamp=0.6),
+                            boundary_flag=False,
+                        ),
+                    ],
+                    validation_issues=[],
+                    model="gemini-2.5-pro",
+                )
+            ]
+        ),
+        _entity_registry(),
+        flash_client=_FakeClient(responses=["not-json"]),
+    )
+
+    assert result.flash_call_count == 1
+    assert result.cache_hit_count == 0
+    assert len(result.per_call_flash_latency_ms) == 1
+    assert result.surface_judgments[0].source == "flash_error"
+    assert [item.code for item in result.pipeline_result.warnings] == [
+        "SURFACE_FLASH_PARSE_ERROR"
+    ]
+    assert len(result.pipeline_result.track_manifest.tracks) == 2

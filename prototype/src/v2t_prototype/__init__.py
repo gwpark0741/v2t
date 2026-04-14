@@ -3,6 +3,7 @@ from __future__ import annotations
 from .agent_a import build_agent_a_request, validate_agent_a_response
 from .agent_b import build_agent_b_cut_input, validate_agent_b_response
 from .agent_c import run_agent_c
+from .surface_judge import SurfaceJudge, normalize_surface
 from .agent_a_runtime import (
     AgentAPostValidationError,
     AgentAResponseParseError,
@@ -153,6 +154,7 @@ __all__ = [
     "StageStatus",
     "StageWarningsRecord",
     "SurfaceJudgment",
+    "SurfaceJudge",
     "Track",
     "TrackManifest",
     "TrackType",
@@ -195,6 +197,7 @@ __all__ = [
     "run_agent_b_all_cuts_parallel",
     "run_agent_b_for_cut",
     "run_agent_c",
+    "normalize_surface",
     "upload_video_file",
     "write_full_video_asset_artifacts",
     "write_agent_a_artifacts",
