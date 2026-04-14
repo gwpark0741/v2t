@@ -1,0 +1,253 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from v2t_prototype.report_generator import generate_pipeline_report
+
+
+def _write_json(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
+def _build_run_dir(tmp_path: Path) -> Path:
+    run_dir = tmp_path / "run_demo"
+    source_video = tmp_path / "source.mp4"
+    source_video.write_bytes(b"fake")
+    clip_path = run_dir / "stage_04_segment_prep" / "clips" / "CUT_001.mp4"
+    clip_path.parent.mkdir(parents=True, exist_ok=True)
+    clip_path.write_bytes(b"clip")
+
+    _write_json(
+        run_dir / "run_manifest.json",
+        {
+            "run_id": "run_demo",
+            "video_path": str(source_video),
+            "created_at_utc": "2026-04-14T00:00:00Z",
+            "entry_stage": None,
+            "stages": [],
+        },
+    )
+    _write_json(
+        run_dir / "stage_01_local_preprocessing" / "output.json",
+        {
+            "video_metadata": {
+                "video_path": str(source_video),
+                "fps": 30.0,
+                "frame_count": 150,
+                "duration_seconds": 5.0,
+                "width": 1280,
+                "height": 720,
+            },
+            "cuts": [{"id": "CUT_001", "start_time": 0.0, "end_time": 5.0}],
+            "video_path": str(source_video),
+            "video_mime_type": "video/mp4",
+        },
+    )
+    _write_json(
+        run_dir / "stage_01_local_preprocessing" / "warnings.json",
+        {"stage": "stage_01_local_preprocessing", "generated_at_utc": "2026-04-14T00:00:00Z", "warnings": []},
+    )
+    _write_json(
+        run_dir / "stage_02_full_video_asset" / "output.json",
+        {
+            "local": {
+                "video_metadata": {
+                    "video_path": str(source_video),
+                    "fps": 30.0,
+                    "frame_count": 150,
+                    "duration_seconds": 5.0,
+                    "width": 1280,
+                    "height": 720,
+                },
+                "cuts": [{"id": "CUT_001", "start_time": 0.0, "end_time": 5.0}],
+                "video_path": str(source_video),
+                "video_mime_type": "video/mp4",
+            },
+            "video_url": "gs://bucket/video.mp4",
+            "gemini_file_name": "files/123",
+            "upload_timestamp_utc": "2026-04-14T00:00:01Z",
+        },
+    )
+    _write_json(
+        run_dir / "stage_02_full_video_asset" / "warnings.json",
+        {"stage": "stage_02_full_video_asset", "generated_at_utc": "2026-04-14T00:00:01Z", "warnings": []},
+    )
+    _write_json(
+        run_dir / "stage_03_agent_a" / "output.json",
+        {
+            "request": {},
+            "raw_response_text": "{}",
+            "response": {
+                "entity_registry": {
+                    "characters": [
+                        {
+                            "id": "char_001",
+                            "label": "Player",
+                            "audibility": "audible",
+                            "visual_description": "Tennis player",
+                            "entry_exit_intervals": [{"start_time": 0.0, "end_time": 5.0}],
+                        }
+                    ],
+                    "key_objects": [
+                        {
+                            "id": "obj_001",
+                            "label": "Ball",
+                            "material": "plastic",
+                            "surface": "smooth",
+                            "audibility": "likely_audible",
+                            "has_mechanism": False,
+                            "visual_description": "Ping pong ball",
+                        }
+                    ],
+                    "ambience_sources": [
+                        {
+                            "id": "amb_001",
+                            "label": "Hall",
+                            "space_description": "Indoor sports hall",
+                            "distance_profile": "mid",
+                            "tonal_quality": "bright",
+                        }
+                    ],
+                }
+            },
+        },
+    )
+    _write_json(
+        run_dir / "stage_03_agent_a" / "warnings.json",
+        {"stage": "stage_03_agent_a", "generated_at_utc": "2026-04-14T00:00:02Z", "warnings": []},
+    )
+    _write_json(
+        run_dir / "stage_04_segment_prep" / "output.json",
+        {
+            "clips": [
+                {
+                    "cut_id": "CUT_001",
+                    "local_clip_path": str(clip_path),
+                    "clip_video_url": "gs://bucket/clip.mp4",
+                    "clip_gemini_file_name": "files/clip",
+                    "clip_video_mime_type": "video/mp4",
+                }
+            ],
+            "skipped_cuts": [],
+            "warnings": [],
+        },
+    )
+    _write_json(
+        run_dir / "stage_04_segment_prep" / "warnings.json",
+        {"stage": "stage_04_segment_prep", "generated_at_utc": "2026-04-14T00:00:03Z", "warnings": []},
+    )
+    _write_json(
+        run_dir / "stage_05_agent_b" / "output.json",
+        {
+            "cut_outputs": [
+                {
+                    "cut_id": "CUT_001",
+                    "model": "gemini-2.5-pro",
+                    "raw_response_text": "{}",
+                    "validation_issues": [],
+                    "actions": [
+                        {
+                            "action_id": "act_CUT_001_001",
+                            "cut_id": "CUT_001",
+                            "primary_source_id": "obj_001",
+                            "interaction_type": "hard_effect",
+                            "sound_description": "Ping pong bounce",
+                            "observed_visual_description": "Ball hits table",
+                            "surface_context": "plastic on wood",
+                            "boundary_flag": False,
+                            "event": {"type": "onset", "timestamp": 1.2},
+                            "unknown_resolution": None,
+                        }
+                    ],
+                }
+            ],
+            "skipped_cut_ids": [],
+            "failed_cut_ids": [],
+            "total_actions": 1,
+            "unresolved_count": 0,
+            "reassigned_count": 0,
+            "warnings": [],
+        },
+    )
+    _write_json(
+        run_dir / "stage_05_agent_b" / "warnings.json",
+        {"stage": "stage_05_agent_b", "generated_at_utc": "2026-04-14T00:00:04Z", "warnings": []},
+    )
+    _write_json(
+        run_dir / "stage_06_agent_c" / "output.json",
+        {
+            "pipeline_result": {
+                "track_manifest": {
+                    "tracks": [
+                        {
+                            "track_id": "obj_001__hard_effect__plastic_on_wood",
+                            "track_type": "sfx",
+                            "source_entity_id": "obj_001",
+                            "interaction_type": "hard_effect",
+                            "sound_description": "Ping pong bounce",
+                            "surface_context_summary": "plastic on wood",
+                            "events": [{"type": "onset", "timestamp": 1.2}],
+                        }
+                    ]
+                },
+                "unresolved_unknowns": [],
+                "warnings": [],
+            },
+            "surface_judgments": [
+                {
+                    "action_id_a": "act_CUT_001_001",
+                    "action_id_b": "act_CUT_001_002",
+                    "interaction_type": "hard_effect",
+                    "surface_context_a": "plastic on wood",
+                    "surface_context_b": "plastic on wood",
+                    "result": "COMPATIBLE",
+                    "reason": "Same normalized surface.",
+                    "source": "normalize_match",
+                    "model": None,
+                }
+            ],
+            "merge_group_count": 1,
+            "flash_call_count": 0,
+            "cache_hit_count": 0,
+            "total_flash_latency_ms": 0.0,
+            "per_call_flash_latency_ms": [],
+        },
+    )
+    _write_json(
+        run_dir / "stage_06_agent_c" / "warnings.json",
+        {"stage": "stage_06_agent_c", "generated_at_utc": "2026-04-14T00:00:05Z", "warnings": []},
+    )
+    return run_dir
+
+
+def test_generate_pipeline_report_writes_combined_html(tmp_path: Path):
+    run_dir = _build_run_dir(tmp_path)
+
+    output_path = generate_pipeline_report(run_dir)
+
+    assert output_path == run_dir / "pipeline_report.html"
+    html = output_path.read_text(encoding="utf-8")
+    assert "Pipeline Report" in html
+    assert "01 Cuts" in html
+    assert "02 Upload" in html
+    assert "03 Agent A" in html
+    assert "04 Segments" in html
+    assert "05 Agent B" in html
+    assert "06 Tracks" in html
+    assert "files/123" in html
+    assert "act_CUT_001_001" in html
+    assert "obj_001__hard_effect__plastic_on_wood" in html
+    assert "normalize_match" in html
+    assert "data-tab-target='cuts'" in html
+    assert "pipeline-report-source-video" in html
+
+
+def test_generate_pipeline_report_renders_missing_stage_fallback(tmp_path: Path):
+    run_dir = _build_run_dir(tmp_path)
+    (run_dir / "stage_05_agent_b" / "output.json").unlink()
+
+    html = generate_pipeline_report(run_dir).read_text(encoding="utf-8")
+
+    assert "Stage 05 artifact not found" in html
