@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from .agent_a import build_agent_a_request, validate_agent_a_response
 from .agent_b import build_agent_b_cut_input, validate_agent_b_response
+from .agent_c import run_agent_c
 from .agent_a_runtime import (
     AgentAPostValidationError,
     AgentAResponseParseError,
@@ -43,6 +44,7 @@ from .artifacts import (
     mark_stage_completed,
     require_completed_stage_output,
     write_agent_a_artifacts,
+    write_agent_c_artifacts,
     write_run_manifest,
     write_agent_b_artifacts,
     write_stage_failure_artifacts,
@@ -59,6 +61,7 @@ from .models import (
     AgentARequest,
     AgentAResponse,
     AgentBAllCutsResult,
+    AgentCResult,
     AgentBCutInput,
     AgentBCutOutput,
     AgentBResponse,
@@ -82,6 +85,7 @@ from .models import (
     StageErrorRecord,
     StageStatus,
     StageWarningsRecord,
+    SurfaceJudgment,
     Track,
     TrackManifest,
     TrackType,
@@ -101,6 +105,7 @@ from .preprocessing import (
 )
 from .preprocessing_report import build_preprocessing_report_html, write_preprocessing_report
 from .agent_a_report import build_agent_a_report_html, write_agent_a_report
+from .agent_c_report import build_agent_c_report_html, write_agent_c_report
 from .synthesizer import synthesize_tracks
 
 __all__ = [
@@ -108,6 +113,7 @@ __all__ = [
     "AgentARequest",
     "AgentAResponse",
     "AgentBAllCutsResult",
+    "AgentCResult",
     "AgentBCutInput",
     "AgentBCutOutput",
     "AgentBResponse",
@@ -146,6 +152,7 @@ __all__ = [
     "StageErrorRecord",
     "StageStatus",
     "StageWarningsRecord",
+    "SurfaceJudgment",
     "Track",
     "TrackManifest",
     "TrackType",
@@ -155,6 +162,7 @@ __all__ = [
     "WarningItem",
     "build_agent_a_request",
     "build_agent_b_cut_input",
+    "build_agent_c_report_html",
     "build_full_video_asset_report_html",
     "build_segment_prep_report_html",
     "build_stage_03_04_report_html",
@@ -186,10 +194,12 @@ __all__ = [
     "run_agent_a_runtime",
     "run_agent_b_all_cuts_parallel",
     "run_agent_b_for_cut",
+    "run_agent_c",
     "upload_video_file",
     "write_full_video_asset_artifacts",
     "write_agent_a_artifacts",
     "write_agent_b_artifacts",
+    "write_agent_c_artifacts",
     "write_segment_prep_artifacts",
     "write_segment_prep_report",
     "write_stage_03_04_report",
@@ -201,5 +211,6 @@ __all__ = [
     "write_preprocessing_report",
     "build_agent_a_report_html",
     "write_agent_a_report",
+    "write_agent_c_report",
     "synthesize_tracks",
 ]
