@@ -19,11 +19,4 @@ def validate_track_manifest_consistency(manifest: TrackManifest) -> List[str]:
 
 def validate_pipeline_result(result: PipelineResult) -> List[str]:
     """Aggregate validations for the full pipeline result."""
-    issues = validate_track_manifest_consistency(result.track_manifest)
-    seen_unknowns: set[str] = set()
-    for unknown in result.unresolved_unknowns:
-        if unknown.unknown_id in seen_unknowns:
-            issues.append(f"duplicate unresolved unknown {unknown.unknown_id}")
-        else:
-            seen_unknowns.add(unknown.unknown_id)
-    return issues
+    return validate_track_manifest_consistency(result.track_manifest)

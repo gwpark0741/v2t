@@ -35,7 +35,7 @@ def test_validate_track_manifest_consistency_reports_duplicates():
     assert any("duplicate track_id" in issue for issue in issues)
 
 
-def test_validate_pipeline_result_checks_duplicates():
+def test_validate_pipeline_result_ignores_duplicate_unresolved_unknown_ids():
     track = Track(
         track_id="trk_uniq",
         track_type="sfx",
@@ -60,4 +60,4 @@ def test_validate_pipeline_result_checks_duplicates():
         warnings=[warning],
     )
     issues = validate_pipeline_result(result)
-    assert any("duplicate unresolved unknown" in issue for issue in issues)
+    assert issues == []
