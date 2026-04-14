@@ -123,6 +123,8 @@ def test_build_stage_03_04_report_html_contains_pairwise_content():
     assert "Fighter A" in html
     assert "Sword" in html
     assert "Training yard" in html
+    assert "Padded Start" not in html
+    assert "Padded End" not in html
 
 
 def test_write_stage_03_04_report_writes_file(tmp_path: Path):

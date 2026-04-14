@@ -37,6 +37,9 @@ def test_build_segment_prep_report_html_contains_key_fields():
     assert "video/mp4" in html
     assert "Skipped Cuts" in html
     assert "Warnings" in html
+    assert "Padded Start" not in html
+    assert "Padded End" not in html
+    assert "actual_padding" not in html
 
 
 def test_write_segment_prep_report_writes_html_file(tmp_path: Path):

@@ -304,6 +304,30 @@ def test_load_stage_bundle_raises_on_output_schema_mismatch(tmp_path: Path):
         )
 
 
+def test_load_stage_bundle_rejects_legacy_padded_stage_04_output(tmp_path: Path):
+    result = _sample_segment_prep_result()
+    write_segment_prep_artifacts(
+        result,
+        runs_dir=tmp_path,
+        run_id="run_legacy_stage_04",
+        video_path="/tmp/sample_video.mp4",
+    )
+    output_path = tmp_path / "run_legacy_stage_04" / SEGMENT_PREP_STAGE_DIR / "output.json"
+    payload = json.loads(output_path.read_text(encoding="utf-8"))
+    payload["clips"][0]["padded_start_time"] = 0.0
+    payload["clips"][0]["padded_end_time"] = 4.0
+    payload["clips"][0]["actual_padding_start"] = 0.0
+    payload["clips"][0]["actual_padding_end"] = 0.0
+    output_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+    with pytest.raises(StageArtifactLoadError):
+        load_stage_bundle(
+            tmp_path / "run_legacy_stage_04",
+            SEGMENT_PREP_STAGE_DIR,
+            SegmentPrepResult,
+        )
+
+
 def test_write_stage_failure_artifacts_records_error_and_failed_status(tmp_path: Path):
     error = StageErrorRecord(
         stage=FULL_VIDEO_ASSET_STAGE_DIR,
