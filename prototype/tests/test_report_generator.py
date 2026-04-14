@@ -251,3 +251,63 @@ def test_generate_pipeline_report_renders_missing_stage_fallback(tmp_path: Path)
     html = generate_pipeline_report(run_dir).read_text(encoding="utf-8")
 
     assert "Stage 05 artifact not found" in html
+
+
+def test_generate_pipeline_report_sorts_tracks_and_shows_description(tmp_path: Path):
+    run_dir = _build_run_dir(tmp_path)
+    _write_json(
+        run_dir / "stage_06_agent_c" / "output.json",
+        {
+            "pipeline_result": {
+                "track_manifest": {
+                    "tracks": [
+                        {
+                            "track_id": "amb_001__background",
+                            "track_type": "ambience",
+                            "source_entity_id": "amb_001",
+                            "interaction_type": "background",
+                            "sound_description": "Room tone.",
+                            "surface_context_summary": None,
+                            "events": [{"type": "continuous", "start_time": 0.0, "end_time": 5.0}],
+                        },
+                        {
+                            "track_id": "char_001__foley__cloth_on_cloth",
+                            "track_type": "sfx",
+                            "source_entity_id": "char_001",
+                            "interaction_type": "foley",
+                            "sound_description": "Cloth rustle.",
+                            "surface_context_summary": "cloth on cloth",
+                            "events": [{"type": "continuous", "start_time": 1.0, "end_time": 2.0}],
+                        },
+                        {
+                            "track_id": "obj_001__hard_effect__plastic_on_wood",
+                            "track_type": "sfx",
+                            "source_entity_id": "obj_001",
+                            "interaction_type": "hard_effect",
+                            "sound_description": "Ping pong bounce.",
+                            "surface_context_summary": "plastic on wood",
+                            "events": [{"type": "onset", "timestamp": 1.2}],
+                        },
+                    ]
+                },
+                "unresolved_unknowns": [],
+                "warnings": [],
+            },
+            "surface_judgments": [],
+            "merge_group_count": 3,
+            "flash_call_count": 0,
+            "cache_hit_count": 0,
+            "total_flash_latency_ms": 0.0,
+            "per_call_flash_latency_ms": [],
+        },
+    )
+
+    html = generate_pipeline_report(run_dir).read_text(encoding="utf-8")
+
+    hard_effect_index = html.index("obj_001__hard_effect__plastic_on_wood")
+    foley_index = html.index("char_001__foley__cloth_on_cloth")
+    background_index = html.index("amb_001__background")
+    assert hard_effect_index < foley_index < background_index
+    assert "Ping pong bounce." in html
+    assert "Cloth rustle." in html
+    assert ">sfx<" in html

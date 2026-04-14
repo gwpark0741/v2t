@@ -70,6 +70,16 @@ def _event_color_class(interaction_type: str) -> str:
     return f"interaction-color-{interaction_type}"
 
 
+def _interaction_sort_key(interaction_type: str) -> tuple[int, str]:
+    order = {
+        "hard_effect": 0,
+        "foley": 1,
+        "background": 2,
+        "electronic": 3,
+    }
+    return (order.get(interaction_type, 99), interaction_type)
+
+
 def render_tab(run_dir: Path, report_html_path: Path) -> str | None:
     payload = stage_output(run_dir, "stage_06_agent_c")
     if not isinstance(payload, dict):
@@ -118,9 +128,14 @@ def render_tab(run_dir: Path, report_html_path: Path) -> str | None:
     video_id = "pipeline-report-source-video"
     timeline_rows = []
     lane_rules = _render_lane_rules(duration)
-    for track in tracks:
-        if not isinstance(track, dict):
-            continue
+    sorted_tracks = sorted(
+        (track for track in tracks if isinstance(track, dict)),
+        key=lambda track: (
+            _interaction_sort_key(str(track.get("interaction_type", "background"))),
+            str(track.get("track_id", "")),
+        ),
+    )
+    for track in sorted_tracks:
         interaction_type = str(track.get("interaction_type", "background"))
         events = track.get("events", [])
         event_html = []
@@ -149,6 +164,7 @@ def render_tab(run_dir: Path, report_html_path: Path) -> str | None:
             "<div class='timeline-row'>"
             "<div class='timeline-label'>"
             f"<div class='mono break-word'>{safe_text(track.get('track_id'))}</div>"
+            f"<div class='break-word' style='margin-top:6px; color: var(--text-secondary)'>{safe_text(track.get('sound_description'))}</div>"
             f"<div style='margin-top:4px'>{render_badge(interaction_type)}</div>"
             "</div>"
             f"<div class='timeline-lane'><div class='timeline-lane-inner'>{lane_rules}{''.join(event_html)}</div></div>"

@@ -620,15 +620,18 @@ def render_video_or_placeholder(
 
 def render_badge(value: str, *, kind: str = "interaction") -> str:
     normalized = str(value).strip()
+    display_value = normalized
     if kind == "interaction":
         class_name = f"badge-{normalized}"
+        if normalized == "hard_effect":
+            display_value = "sfx"
     elif kind == "severity":
         class_name = f"badge-{normalized.lower()}"
     elif kind == "audibility":
         class_name = f"badge-{normalized}"
     else:
         class_name = "badge-info"
-    return f"<span class='badge {html.escape(class_name)}'>{safe_text(normalized)}</span>"
+    return f"<span class='badge {html.escape(class_name)}'>{safe_text(display_value)}</span>"
 
 
 def render_summary_card(label: str, value: object) -> str:
