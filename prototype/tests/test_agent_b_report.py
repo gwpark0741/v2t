@@ -142,6 +142,8 @@ def test_build_agent_b_report_html_contains_key_fields():
     assert "AGENT_B_UNKNOWN_SOURCE_ID" in html
     assert "raw_only_marker" in html
     assert "continuous 0.500s - 1.500s" in html
+    assert "Raw response timestamps below are clip-local." in html
+    assert "Event (absolute)" in html
 
 
 def test_write_agent_b_report_writes_html_file(tmp_path: Path):

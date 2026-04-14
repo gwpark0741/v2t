@@ -101,6 +101,7 @@ def build_agent_b_report_html(
         <div class="label">Total Tokens</div><div>{cut_output.usage.total_token_count}</div>
         <div class="label">Estimated Cost (USD)</div><div>{cut_output.estimated_cost_usd:.6f}</div>
       </div>
+      <p class="muted">Raw response timestamps below are clip-local. Canonical action timestamps in the table are absolute full-video times.</p>
       <h3>Validation Issues</h3>
       {validation_block}
       <h3>Actions</h3>
@@ -108,7 +109,7 @@ def build_agent_b_report_html(
         <thead>
           <tr>
             <th>Action ID</th><th>Primary Source</th><th>Interaction</th><th>Sound</th>
-            <th>Surface</th><th>Observed Visual</th><th>Event</th><th>Boundary</th><th>Unknown Resolution</th>
+            <th>Surface</th><th>Observed Visual</th><th>Event (absolute)</th><th>Boundary</th><th>Unknown Resolution</th>
           </tr>
         </thead>
         <tbody>{action_rows}</tbody>

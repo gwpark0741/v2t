@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import re
 
-from .models import AgentBCutInput, AgentBResponse, Cut, EntityRegistry, SegmentClip
+from .models import AgentBCutInput, AgentBResponse, ContinuousEvent, Cut, EntityRegistry, OnsetEvent, SegmentClip
 
 
 UNKNOWN_PATTERN = re.compile(r"^UNKNOWN_(CHARACTER|OBJECT|AMBIENCE)_CUT\d{3}_\d+$")
+LOCAL_EVENT_TIME_TOLERANCE_SECONDS = 1e-3
 
 
 def build_agent_b_cut_input(
@@ -38,10 +39,15 @@ def validate_agent_b_response(
     response: AgentBResponse,
     cut_id: str,
     entity_registry: EntityRegistry,
+    *,
+    cut_start_time: float,
+    cut_end_time: float,
+    tolerance_seconds: float = LOCAL_EVENT_TIME_TOLERANCE_SECONDS,
 ) -> list[str]:
     issues: list[str] = []
     all_registry_ids = _registry_entity_ids(entity_registry)
     seen_action_ids: set[str] = set()
+    cut_duration = cut_end_time - cut_start_time
 
     for action in response.actions:
         if action.cut_id != cut_id:
@@ -64,5 +70,16 @@ def validate_agent_b_response(
             and action.unknown_resolution.suggested_entity_id not in all_registry_ids
         ):
             issues.append("AGENT_B_INVALID_REASSIGN_TARGET")
+
+        event = action.event
+        if isinstance(event, OnsetEvent):
+            if event.timestamp > cut_duration + tolerance_seconds:
+                issues.append("AGENT_B_EVENT_TIME_OUT_OF_LOCAL_RANGE")
+        elif isinstance(event, ContinuousEvent):
+            if (
+                event.start_time > cut_duration + tolerance_seconds
+                or event.end_time > cut_duration + tolerance_seconds
+            ):
+                issues.append("AGENT_B_EVENT_TIME_OUT_OF_LOCAL_RANGE")
 
     return issues

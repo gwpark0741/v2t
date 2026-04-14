@@ -20,6 +20,8 @@ from .models import (
     AgentBCutInput,
     AgentBCutOutput,
     AgentBResponse,
+    ContinuousEvent,
+    OnsetEvent,
     SegmentPrepResult,
     TokenUsage,
     WarningItem,
@@ -90,12 +92,15 @@ RULES
        "hard plastic vs glass"                                   — wrong separator
 
 6. Choose event type:
+   - All event timestamps must be relative to THIS clip.
+   - The clip always starts at 0.0 seconds.
+   - Do NOT use full-video absolute timestamps.
    - onset:      single impact or instantaneous event
    - continuous: sustained sound with clear start and end
 
    Examples:
-     {"event": {"type": "onset", "timestamp": 1.2}}
-     {"event": {"type": "continuous", "start_time": 0.5, "end_time": 1.5}}
+     {"event": {"type": "onset", "timestamp": 0.2}}
+     {"event": {"type": "continuous", "start_time": 0.5, "end_time": 1.1}}
 
 7. action_id format: act_{cut_id}_{SEQ:03d}
    Example: act_CUT001_001, act_CUT001_002
@@ -168,7 +173,32 @@ def _normalize_agent_b_response_payload(raw_response_text: str) -> Any:
     return normalized_payload
 
 
-def _postprocess_action(action: Action) -> Action:
+def _normalize_action_event_to_absolute(action: Action, *, cut_start_time: float) -> Action:
+    event = action.event
+    if isinstance(event, OnsetEvent):
+        normalized_event = event.model_copy(
+            update={"timestamp": event.timestamp + cut_start_time}
+        )
+    else:
+        normalized_event = event.model_copy(
+            update={
+                "start_time": event.start_time + cut_start_time,
+                "end_time": event.end_time + cut_start_time,
+            }
+        )
+    return action.model_copy(update={"event": normalized_event})
+
+
+def _event_in_absolute_range(action: Action, *, cut_start_time: float, cut_end_time: float) -> bool:
+    event = action.event
+    if isinstance(event, OnsetEvent):
+        return cut_start_time <= event.timestamp <= cut_end_time
+    return (
+        cut_start_time <= event.start_time < event.end_time <= cut_end_time
+    )
+
+
+def _postprocess_action(action: Action, *, cut_start_time: float) -> Action:
     primary_source_id = action.primary_source_id
     unknown_resolution: UnknownResolution | None = action.unknown_resolution
     if (
@@ -178,7 +208,11 @@ def _postprocess_action(action: Action) -> Action:
     ):
         primary_source_id = unknown_resolution.suggested_entity_id
 
-    return action.model_copy(
+    normalized_action = _normalize_action_event_to_absolute(
+        action,
+        cut_start_time=cut_start_time,
+    )
+    return normalized_action.model_copy(
         update={
             "primary_source_id": primary_source_id,
             "boundary_flag": False,
@@ -250,7 +284,13 @@ def run_agent_b_for_cut(
                 estimated_cost_usd=estimated_total_cost_usd,
             )
 
-        issues = validate_agent_b_response(parsed_response, input.cut_id, input.entity_registry)
+        issues = validate_agent_b_response(
+            parsed_response,
+            input.cut_id,
+            input.entity_registry,
+            cut_start_time=input.cut_start_time,
+            cut_end_time=input.cut_end_time,
+        )
         if issues and len(issues) <= 3 and retries_used < max_retries:
             retries_used += 1
             continue
@@ -267,11 +307,24 @@ def run_agent_b_for_cut(
                 estimated_cost_usd=estimated_total_cost_usd,
             )
 
+        processed_actions = [
+            _postprocess_action(action, cut_start_time=input.cut_start_time)
+            for action in parsed_response.actions
+        ]
+        absolute_issues = list(issues)
+        for processed_action in processed_actions:
+            if not _event_in_absolute_range(
+                processed_action,
+                cut_start_time=input.cut_start_time,
+                cut_end_time=input.cut_end_time,
+            ):
+                absolute_issues.append("AGENT_B_EVENT_TIME_OUT_OF_ABSOLUTE_RANGE")
+
         return AgentBCutOutput(
             cut_id=input.cut_id,
             raw_response_text=raw_response_text,
-            actions=[_postprocess_action(action) for action in parsed_response.actions],
-            validation_issues=issues,
+            actions=processed_actions,
+            validation_issues=absolute_issues,
             model=model,
             latency_ms=total_latency_ms,
             usage=aggregate_usage,

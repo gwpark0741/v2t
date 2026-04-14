@@ -109,6 +109,8 @@ def test_validate_agent_b_response_accepts_valid_response():
         _response(_valid_action()),
         "CUT_001",
         _entity_registry(),
+        cut_start_time=0.0,
+        cut_end_time=4.0,
     )
 
     assert issues == []
@@ -122,6 +124,8 @@ def test_validate_agent_b_response_reports_duplicate_action_id():
         ),
         "CUT_001",
         _entity_registry(),
+        cut_start_time=0.0,
+        cut_end_time=4.0,
     )
 
     assert issues == ["AGENT_B_DUPLICATE_ACTION_ID"]
@@ -137,6 +141,8 @@ def test_validate_agent_b_response_reports_cut_id_mismatch_and_unknown_source():
         ),
         "CUT_001",
         _entity_registry(),
+        cut_start_time=0.0,
+        cut_end_time=4.0,
     )
 
     assert issues == [
@@ -158,6 +164,8 @@ def test_validate_agent_b_response_reports_invalid_unknown_format():
         ),
         "CUT_001",
         _entity_registry(),
+        cut_start_time=0.0,
+        cut_end_time=4.0,
     )
 
     assert issues == ["AGENT_B_INVALID_UNKNOWN_FORMAT"]
@@ -177,6 +185,56 @@ def test_validate_agent_b_response_reports_invalid_reassign_target():
         ),
         "CUT_001",
         _entity_registry(),
+        cut_start_time=0.0,
+        cut_end_time=4.0,
     )
 
     assert issues == ["AGENT_B_INVALID_REASSIGN_TARGET"]
+
+
+def test_validate_agent_b_response_reports_event_time_out_of_local_range_for_onset():
+    issues = validate_agent_b_response(
+        _response(
+            _valid_action(
+                event={"type": "onset", "timestamp": 4.5},
+            )
+        ),
+        "CUT_001",
+        _entity_registry(),
+        cut_start_time=0.0,
+        cut_end_time=4.0,
+    )
+
+    assert issues == ["AGENT_B_EVENT_TIME_OUT_OF_LOCAL_RANGE"]
+
+
+def test_validate_agent_b_response_reports_event_time_out_of_local_range_for_continuous():
+    issues = validate_agent_b_response(
+        _response(
+            _valid_action(
+                event={"type": "continuous", "start_time": 3.5, "end_time": 4.2},
+            )
+        ),
+        "CUT_001",
+        _entity_registry(),
+        cut_start_time=0.0,
+        cut_end_time=4.0,
+    )
+
+    assert issues == ["AGENT_B_EVENT_TIME_OUT_OF_LOCAL_RANGE"]
+
+
+def test_validate_agent_b_response_accepts_continuous_event_at_rounded_cut_boundary():
+    issues = validate_agent_b_response(
+        _response(
+            _valid_action(
+                event={"type": "continuous", "start_time": 0.0, "end_time": 1.433},
+            )
+        ),
+        "CUT_001",
+        _entity_registry(),
+        cut_start_time=5.0,
+        cut_end_time=6.433,
+    )
+
+    assert issues == []

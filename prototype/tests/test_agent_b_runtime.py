@@ -205,9 +205,107 @@ def test_run_agent_b_for_cut_success_rewrites_reassign_and_forces_boundary_false
     )
 
 
+def test_run_agent_b_for_cut_normalizes_local_event_time_to_absolute_time():
+    input_model = build_agent_b_cut_input(
+        _clip("CUT_003"),
+        _cut("CUT_003", 3.067, 6.067),
+        _entity_registry(),
+    )
+    response_text = json.dumps(
+        {
+            "actions": [
+                _valid_action_dict(
+                    action_id="act_CUT_003_001",
+                    cut_id="CUT_003",
+                    event={
+                        "type": "onset",
+                        "timestamp": 0.15,
+                    },
+                    boundary_flag=False,
+                )
+            ]
+        }
+    )
+    client = _mock_client_with_texts(response_text)
+
+    with patch("v2t_prototype.agent_b_runtime.types.Part.from_uri") as part_from_uri:
+        part_from_uri.return_value = SimpleNamespace(content="clip")
+        output = run_agent_b_for_cut(input_model, client=client)
+
+    assert output.validation_issues == []
+    assert output.actions[0].event.type == "onset"
+    assert output.actions[0].event.timestamp == pytest.approx(3.217)
+
+
+def test_run_agent_b_for_cut_retries_when_local_event_time_is_out_of_range():
+    input_model = _make_runtime_input()
+    client = _mock_client_with_texts(
+        json.dumps(
+            {
+                "actions": [
+                    _valid_action_dict(
+                        boundary_flag=False,
+                        event={
+                            "type": "onset",
+                            "timestamp": 4.5,
+                        },
+                    )
+                ]
+            }
+        ),
+        json.dumps({"actions": [_valid_action_dict(boundary_flag=False)]}),
+    )
+
+    with patch("v2t_prototype.agent_b_runtime.types.Part.from_uri") as part_from_uri:
+        part_from_uri.return_value = SimpleNamespace(content="clip")
+        output = run_agent_b_for_cut(input_model, client=client, max_retries=1)
+
+    assert output.validation_issues == []
+    assert len(output.actions) == 1
+    assert client.models.generate_content.call_count == 2
+
+
+def test_run_agent_b_for_cut_accepts_boundary_event_when_cut_duration_rounds_down():
+    input_model = build_agent_b_cut_input(
+        _clip("CUT_004"),
+        _cut("CUT_004", 5.0, 6.433),
+        _entity_registry(),
+    )
+    response_text = json.dumps(
+        {
+            "actions": [
+                _valid_action_dict(
+                    action_id="act_CUT_004_001",
+                    cut_id="CUT_004",
+                    event={
+                        "type": "continuous",
+                        "start_time": 0.0,
+                        "end_time": 1.433,
+                    },
+                    boundary_flag=False,
+                )
+            ]
+        }
+    )
+    client = _mock_client_with_texts(response_text)
+
+    with patch("v2t_prototype.agent_b_runtime.types.Part.from_uri") as part_from_uri:
+        part_from_uri.return_value = SimpleNamespace(content="clip")
+        output = run_agent_b_for_cut(input_model, client=client, max_retries=0)
+
+    assert output.validation_issues == []
+    assert len(output.actions) == 1
+    assert output.actions[0].event.type == "continuous"
+    assert output.actions[0].event.start_time == pytest.approx(5.0)
+    assert output.actions[0].event.end_time == pytest.approx(6.433)
+
+
 def test_agent_b_system_prompt_includes_surface_formatting_rules():
     assert 'Format: "{material_a} on {material_b}"' in DEFAULT_AGENT_B_SYSTEM_PROMPT
     assert "Fill ONLY for hard_effect and foley. Set null for background and electronic." in DEFAULT_AGENT_B_SYSTEM_PROMPT
+    assert "All event timestamps must be relative to THIS clip." in DEFAULT_AGENT_B_SYSTEM_PROMPT
+    assert "The clip always starts at 0.0 seconds." in DEFAULT_AGENT_B_SYSTEM_PROMPT
+    assert "Do NOT use full-video absolute timestamps." in DEFAULT_AGENT_B_SYSTEM_PROMPT
     assert '"plastic on wood"' in DEFAULT_AGENT_B_SYSTEM_PROMPT
     assert '"plastic ball hitting the wooden composite table surface"' in DEFAULT_AGENT_B_SYSTEM_PROMPT
 
