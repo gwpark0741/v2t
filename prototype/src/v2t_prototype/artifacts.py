@@ -12,12 +12,14 @@ from pydantic import BaseModel
 from .agent_a_runtime import AgentARuntimeOutput
 from .agent_b import build_agent_b_cut_input
 from .agent_b_report import write_agent_b_report
+from .agent_a_report import write_agent_a_report
 from .full_video_asset_report import write_full_video_asset_report
 from .models import (
     AgentBAllCutsResult,
     FullVideoAssetResult,
     LoadedStageBundle,
     LocalPreprocessingResult,
+    PreprocessingResult,
     RunManifest,
     StageErrorRecord,
     StageWarningsRecord,
@@ -356,6 +358,53 @@ def write_full_video_asset_artifacts(
     artifacts.write_warnings(stage=FULL_VIDEO_ASSET_STAGE_DIR, warnings=list(warnings or []))
     artifacts.write_report(result, title=report_title, warnings=warnings)
     write_run_manifest(run_dir, mark_stage_completed(manifest, stage_dir=FULL_VIDEO_ASSET_STAGE_DIR))
+    return stage_dir
+
+
+def write_agent_a_artifacts(
+    runtime_output: AgentARuntimeOutput,
+    *,
+    video_path: str,
+    runs_dir: Path = Path("runs"),
+    run_id: str | None = None,
+    warnings: Sequence[WarningItem] | None = None,
+    report_title: str | None = None,
+) -> Path:
+    actual_run_id = run_id or generate_run_id(Path(video_path))
+    run_dir, manifest = ensure_run_manifest(
+        runs_dir=runs_dir,
+        run_id=actual_run_id,
+        video_path=video_path,
+    )
+    stage_dir = run_dir / AGENT_A_STAGE_DIR
+    artifacts = StageArtifacts(stage_dir)
+    (stage_dir / "input.json").write_text(
+        runtime_output.request.model_dump_json(indent=2),
+        encoding="utf-8",
+    )
+    artifacts.write_output(runtime_output)
+    artifacts.write_warnings(
+        stage=AGENT_A_STAGE_DIR,
+        warnings=list(warnings or []),
+    )
+    (stage_dir / "raw_response.txt").write_text(
+        runtime_output.raw_response_text,
+        encoding="utf-8",
+    )
+
+    preprocessing = PreprocessingResult(
+        video_metadata=runtime_output.request.video_metadata,
+        cuts=runtime_output.request.cuts,
+        video_url=runtime_output.request.video_url,
+        video_mime_type=runtime_output.request.video_mime_type,
+    )
+    write_agent_a_report(
+        preprocessing,
+        runtime_output,
+        stage_dir / "report.html",
+        title=report_title,
+    )
+    write_run_manifest(run_dir, mark_stage_completed(manifest, stage_dir=AGENT_A_STAGE_DIR))
     return stage_dir
 
 

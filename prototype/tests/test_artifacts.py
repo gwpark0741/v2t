@@ -7,6 +7,7 @@ import pytest
 
 from v2t_prototype.agent_a_runtime import AgentARuntimeOutput
 from v2t_prototype.artifacts import (
+    AGENT_A_STAGE_DIR,
     AGENT_B_STAGE_DIR,
     FULL_VIDEO_ASSET_STAGE_DIR,
     LOCAL_PREPROCESSING_STAGE_DIR,
@@ -20,6 +21,7 @@ from v2t_prototype.artifacts import (
     mark_stage_failed,
     require_completed_stage_output,
     write_stage_failure_artifacts,
+    write_agent_a_artifacts,
     write_agent_b_artifacts,
     write_full_video_asset_artifacts,
     write_local_preprocessing_artifacts,
@@ -279,6 +281,82 @@ def test_write_full_video_asset_artifacts_writes_canonical_files(tmp_path: Path)
     assert warnings_payload["stage"] == FULL_VIDEO_ASSET_STAGE_DIR
     assert warnings_payload["warnings"][0]["code"] == "UPLOAD_RETRIED_ONCE"
     assert "Stage 02 Report" in (stage_dir / "report.html").read_text(encoding="utf-8")
+
+
+def test_write_agent_a_artifacts_writes_canonical_files_and_supports_reentry(tmp_path: Path):
+    result = _sample_agent_a_output()
+    warnings = [
+        WarningItem(
+            code="AGENT_A_RESPONSE_USED_FALLBACK_LABEL",
+            severity="info",
+            message="One label was normalized during reporting.",
+            context={"entity_id": "char_001"},
+        )
+    ]
+
+    stage_dir = write_agent_a_artifacts(
+        result,
+        video_path="/tmp/sample_video.mp4",
+        runs_dir=tmp_path,
+        run_id="run_agent_a_001",
+        warnings=warnings,
+        report_title="Stage 03 Report",
+    )
+
+    assert stage_dir == tmp_path / "run_agent_a_001" / AGENT_A_STAGE_DIR
+    assert (stage_dir / "input.json").exists()
+    assert (stage_dir / "output.json").exists()
+    assert (stage_dir / "warnings.json").exists()
+    assert (stage_dir / "raw_response.txt").exists()
+    assert (stage_dir / "report.html").exists()
+
+    input_payload = json.loads((stage_dir / "input.json").read_text(encoding="utf-8"))
+    output_payload = json.loads((stage_dir / "output.json").read_text(encoding="utf-8"))
+    warnings_payload = json.loads((stage_dir / "warnings.json").read_text(encoding="utf-8"))
+
+    assert input_payload["video_url"] == "https://example.com/full"
+    assert output_payload["request"]["cuts"][0]["id"] == "CUT_001"
+    assert output_payload["response"]["entity_registry"]["characters"][0]["id"] == "char_001"
+    assert warnings_payload["stage"] == AGENT_A_STAGE_DIR
+    assert warnings_payload["warnings"][0]["code"] == "AGENT_A_RESPONSE_USED_FALLBACK_LABEL"
+    assert "Stage 03 Report" in (stage_dir / "report.html").read_text(encoding="utf-8")
+    assert (stage_dir / "raw_response.txt").read_text(encoding="utf-8") == result.raw_response_text
+
+    manifest = load_run_manifest(tmp_path / "run_agent_a_001")
+    stage_statuses = {stage.stage: stage for stage in manifest.stages}
+    assert stage_statuses[AGENT_A_STAGE_DIR].status == "completed"
+
+    bundle = load_stage_bundle(
+        tmp_path / "run_agent_a_001",
+        AGENT_A_STAGE_DIR,
+        AgentARuntimeOutput,
+    )
+    assert bundle.status == "completed"
+    assert bundle.output == result
+    assert bundle.output_path == stage_dir / "output.json"
+    assert bundle.warnings_path == stage_dir / "warnings.json"
+    assert bundle.report_path == stage_dir / "report.html"
+
+    reentry_output = require_completed_stage_output(
+        tmp_path / "run_agent_a_001",
+        AGENT_A_STAGE_DIR,
+        AgentARuntimeOutput,
+    )
+    assert reentry_output == result
+
+
+def test_write_agent_a_artifacts_writes_warnings_file_even_when_empty(tmp_path: Path):
+    stage_dir = write_agent_a_artifacts(
+        _sample_agent_a_output(),
+        video_path="/tmp/sample_video.mp4",
+        runs_dir=tmp_path,
+        run_id="run_agent_a_002",
+        warnings=[],
+    )
+
+    warnings_payload = json.loads((stage_dir / "warnings.json").read_text(encoding="utf-8"))
+    assert warnings_payload["stage"] == AGENT_A_STAGE_DIR
+    assert warnings_payload["warnings"] == []
 
 
 def test_write_segment_prep_artifacts_writes_canonical_files(tmp_path: Path):
@@ -579,6 +657,42 @@ def test_write_stage_failure_artifacts_records_error_and_failed_status(tmp_path:
     assert bundle.output is None
     assert bundle.error == error
     assert [item.code for item in bundle.warnings] == ["UPLOAD_RETRY_EXHAUSTED"]
+
+
+def test_write_stage_failure_artifacts_records_stage_03_error_and_failed_status(tmp_path: Path):
+    error = StageErrorRecord(
+        stage=AGENT_A_STAGE_DIR,
+        failed_at_utc="2026-04-14T08:00:00Z",
+        attempt_count=2,
+        retryable=False,
+        error_class="AgentAArtifactWriteError",
+        message="Stage 03 artifacts could not be written.",
+        context={"run_id": "run_010"},
+    )
+
+    stage_dir = write_stage_failure_artifacts(
+        stage=AGENT_A_STAGE_DIR,
+        video_path="/tmp/sample_video.mp4",
+        error=error,
+        runs_dir=tmp_path,
+        run_id="run_010",
+        warnings=[],
+    )
+
+    assert stage_dir == tmp_path / "run_010" / AGENT_A_STAGE_DIR
+    assert (stage_dir / "warnings.json").exists()
+    assert (stage_dir / "error.json").exists()
+    assert not (stage_dir / "output.json").exists()
+
+    manifest = load_run_manifest(tmp_path / "run_010")
+    stage_statuses = {stage.stage: stage for stage in manifest.stages}
+    assert stage_statuses[AGENT_A_STAGE_DIR].status == "failed"
+    assert stage_statuses[AGENT_A_STAGE_DIR].error_message == error.message
+
+    bundle = load_stage_bundle(tmp_path / "run_010", AGENT_A_STAGE_DIR)
+    assert bundle.status == "failed"
+    assert bundle.output is None
+    assert bundle.error == error
 
 
 def test_write_stage_failure_artifacts_records_stage_05_error_and_failed_status(tmp_path: Path):
