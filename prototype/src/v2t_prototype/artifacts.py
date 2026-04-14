@@ -11,11 +11,13 @@ from pydantic import BaseModel
 
 from .agent_a_runtime import AgentARuntimeOutput
 from .agent_b import build_agent_b_cut_input
+from .agent_c_report import write_agent_c_report
 from .agent_b_report import write_agent_b_report
 from .agent_a_report import write_agent_a_report
 from .full_video_asset_report import write_full_video_asset_report
 from .models import (
     AgentBAllCutsResult,
+    AgentCResult,
     FullVideoAssetResult,
     LoadedStageBundle,
     LocalPreprocessingResult,
@@ -512,6 +514,47 @@ def write_agent_b_artifacts(
         title=report_title,
     )
     write_run_manifest(run_dir, mark_stage_completed(manifest, stage_dir=AGENT_B_STAGE_DIR))
+    return stage_dir
+
+
+def write_agent_c_artifacts(
+    result: AgentCResult,
+    *,
+    video_path: str,
+    runs_dir: Path = Path("runs"),
+    run_id: str | None = None,
+    report_title: str | None = None,
+) -> Path:
+    actual_run_id = run_id or generate_run_id(Path(video_path))
+    run_dir, manifest = ensure_run_manifest(
+        runs_dir=runs_dir,
+        run_id=actual_run_id,
+        video_path=video_path,
+    )
+    stage_dir = run_dir / AGENT_C_STAGE_DIR
+    artifacts = StageArtifacts(stage_dir)
+    artifacts.write_output(result)
+    artifacts.write_warnings(
+        stage=AGENT_C_STAGE_DIR,
+        warnings=list(result.pipeline_result.warnings),
+    )
+    (stage_dir / "surface_judgments.json").write_text(
+        json.dumps(
+            {
+                "surface_judgments": [
+                    item.model_dump(mode="json") for item in result.surface_judgments
+                ]
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    write_agent_c_report(
+        result,
+        stage_dir / "report.html",
+        title=report_title,
+    )
+    write_run_manifest(run_dir, mark_stage_completed(manifest, stage_dir=AGENT_C_STAGE_DIR))
     return stage_dir
 
 

@@ -9,6 +9,7 @@ from v2t_prototype.agent_a_runtime import AgentARuntimeOutput
 from v2t_prototype.artifacts import (
     AGENT_A_STAGE_DIR,
     AGENT_B_STAGE_DIR,
+    AGENT_C_STAGE_DIR,
     FULL_VIDEO_ASSET_STAGE_DIR,
     LOCAL_PREPROCESSING_STAGE_DIR,
     RUN_MANIFEST_FILENAME,
@@ -23,6 +24,7 @@ from v2t_prototype.artifacts import (
     write_stage_failure_artifacts,
     write_agent_a_artifacts,
     write_agent_b_artifacts,
+    write_agent_c_artifacts,
     write_full_video_asset_artifacts,
     write_local_preprocessing_artifacts,
     write_segment_prep_artifacts,
@@ -32,6 +34,7 @@ from v2t_prototype.models import (
     AgentARequest,
     AgentAResponse,
     AgentBAllCutsResult,
+    AgentCResult,
     AgentBCutOutput,
     AmbienceSource,
     Character,
@@ -42,10 +45,14 @@ from v2t_prototype.models import (
     Interval,
     KeyObject,
     LocalPreprocessingResult,
+    PipelineResult,
     SegmentClip,
     SegmentPrepResult,
     SkippedCut,
     StageErrorRecord,
+    Track,
+    TrackManifest,
+    UnresolvedUnknown,
     UnknownResolution,
     VideoMetadata,
     WarningItem,
@@ -205,6 +212,39 @@ def _sample_agent_b_result(*, warnings: list[WarningItem] | None = None) -> Agen
         unresolved_count=1,
         reassigned_count=0,
         warnings=list(warnings or []),
+    )
+
+
+def _sample_agent_c_result(*, warnings: list[WarningItem] | None = None) -> AgentCResult:
+    return AgentCResult(
+        pipeline_result=PipelineResult(
+            track_manifest=TrackManifest(
+                tracks=[
+                    Track(
+                        track_id="char_001__foley__steel",
+                        track_type="sfx",
+                        source_entity_id="char_001",
+                        interaction_type="foley",
+                        sound_description="steel footstep",
+                        surface_context_summary="steel",
+                        events=[ContinuousEvent(type="continuous", start_time=0.5, end_time=1.5)],
+                    )
+                ]
+            ),
+            unresolved_unknowns=[
+                UnresolvedUnknown(
+                    unknown_id="UNKNOWN_OBJECT_CUT001_1",
+                    cut_id="CUT_001",
+                    observed_visual_description="swords collide",
+                    interaction_type="hard_effect",
+                    sound_description="metal clash",
+                )
+            ],
+            warnings=list(warnings or []),
+        ),
+        surface_judgments=[],
+        merge_group_count=1,
+        flash_call_count=0,
     )
 
 
@@ -483,6 +523,81 @@ def test_write_agent_b_artifacts_writes_warnings_file_even_when_empty(tmp_path: 
     assert warnings_payload["warnings"] == []
 
 
+def test_write_agent_c_artifacts_writes_canonical_files_and_supports_reentry(tmp_path: Path):
+    result = _sample_agent_c_result(
+        warnings=[
+            WarningItem(
+                code="AGENT_C_PIPELINE_VALIDATION_WARNING",
+                severity="warning",
+                message="Pipeline validation reported a Stage 06 warning.",
+                context={"issue": "misc warning"},
+            )
+        ]
+    )
+
+    stage_dir = write_agent_c_artifacts(
+        result,
+        video_path="/tmp/sample_video.mp4",
+        runs_dir=tmp_path,
+        run_id="run_agent_c_001",
+        report_title="Stage 06 Report",
+    )
+
+    assert stage_dir == tmp_path / "run_agent_c_001" / AGENT_C_STAGE_DIR
+    assert (stage_dir / "output.json").exists()
+    assert (stage_dir / "warnings.json").exists()
+    assert (stage_dir / "surface_judgments.json").exists()
+    assert (stage_dir / "report.html").exists()
+
+    output_payload = json.loads((stage_dir / "output.json").read_text(encoding="utf-8"))
+    warnings_payload = json.loads((stage_dir / "warnings.json").read_text(encoding="utf-8"))
+    surface_payload = json.loads((stage_dir / "surface_judgments.json").read_text(encoding="utf-8"))
+
+    assert output_payload["merge_group_count"] == 1
+    assert output_payload["pipeline_result"]["track_manifest"]["tracks"][0]["track_id"] == "char_001__foley__steel"
+    assert warnings_payload["stage"] == AGENT_C_STAGE_DIR
+    assert warnings_payload["warnings"][0]["code"] == "AGENT_C_PIPELINE_VALIDATION_WARNING"
+    assert surface_payload == {"surface_judgments": []}
+    assert "Stage 06 Report" in (stage_dir / "report.html").read_text(encoding="utf-8")
+
+    manifest = load_run_manifest(tmp_path / "run_agent_c_001")
+    stage_statuses = {stage.stage: stage for stage in manifest.stages}
+    assert stage_statuses[AGENT_C_STAGE_DIR].status == "completed"
+
+    bundle = load_stage_bundle(
+        tmp_path / "run_agent_c_001",
+        AGENT_C_STAGE_DIR,
+        AgentCResult,
+    )
+    assert bundle.status == "completed"
+    assert bundle.output == result
+    assert bundle.output_path == stage_dir / "output.json"
+    assert bundle.warnings_path == stage_dir / "warnings.json"
+    assert bundle.report_path == stage_dir / "report.html"
+
+    reentry_output = require_completed_stage_output(
+        tmp_path / "run_agent_c_001",
+        AGENT_C_STAGE_DIR,
+        AgentCResult,
+    )
+    assert reentry_output == result
+
+
+def test_write_agent_c_artifacts_writes_warnings_file_even_when_empty(tmp_path: Path):
+    stage_dir = write_agent_c_artifacts(
+        _sample_agent_c_result(warnings=[]),
+        video_path="/tmp/sample_video.mp4",
+        runs_dir=tmp_path,
+        run_id="run_agent_c_002",
+    )
+
+    warnings_payload = json.loads((stage_dir / "warnings.json").read_text(encoding="utf-8"))
+    surface_payload = json.loads((stage_dir / "surface_judgments.json").read_text(encoding="utf-8"))
+    assert warnings_payload["stage"] == AGENT_C_STAGE_DIR
+    assert warnings_payload["warnings"] == []
+    assert surface_payload == {"surface_judgments": []}
+
+
 def test_manifest_tracks_stage_progress_across_stage_01_and_02(tmp_path: Path):
     local_result = _sample_local_result()
     asset_result = _sample_full_video_asset_result()
@@ -726,6 +841,42 @@ def test_write_stage_failure_artifacts_records_stage_05_error_and_failed_status(
     assert stage_statuses[AGENT_B_STAGE_DIR].error_message == error.message
 
     bundle = load_stage_bundle(tmp_path / "run_009", AGENT_B_STAGE_DIR)
+    assert bundle.status == "failed"
+    assert bundle.output is None
+    assert bundle.error == error
+
+
+def test_write_stage_failure_artifacts_records_stage_06_error_and_failed_status(tmp_path: Path):
+    error = StageErrorRecord(
+        stage=AGENT_C_STAGE_DIR,
+        failed_at_utc="2026-04-14T08:00:00Z",
+        attempt_count=2,
+        retryable=False,
+        error_class="AgentCArtifactWriteError",
+        message="Stage 06 artifacts could not be written.",
+        context={"run_id": "run_011"},
+    )
+
+    stage_dir = write_stage_failure_artifacts(
+        stage=AGENT_C_STAGE_DIR,
+        video_path="/tmp/sample_video.mp4",
+        error=error,
+        runs_dir=tmp_path,
+        run_id="run_011",
+        warnings=[],
+    )
+
+    assert stage_dir == tmp_path / "run_011" / AGENT_C_STAGE_DIR
+    assert (stage_dir / "warnings.json").exists()
+    assert (stage_dir / "error.json").exists()
+    assert not (stage_dir / "output.json").exists()
+
+    manifest = load_run_manifest(tmp_path / "run_011")
+    stage_statuses = {stage.stage: stage for stage in manifest.stages}
+    assert stage_statuses[AGENT_C_STAGE_DIR].status == "failed"
+    assert stage_statuses[AGENT_C_STAGE_DIR].error_message == error.message
+
+    bundle = load_stage_bundle(tmp_path / "run_011", AGENT_C_STAGE_DIR)
     assert bundle.status == "failed"
     assert bundle.output is None
     assert bundle.error == error

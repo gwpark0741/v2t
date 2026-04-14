@@ -402,3 +402,25 @@ class PipelineResult(BaseModel):
     warnings: List[WarningItem]
 
     model_config = ConfigDict(extra="forbid")
+
+
+class SurfaceJudgment(BaseModel):
+    action_id_a: str
+    action_id_b: str
+    surface_context_a: str | None = None
+    surface_context_b: str | None = None
+    interaction_type: InteractionType
+    result: str
+    reason: str
+    model: str
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class AgentCResult(BaseModel):
+    pipeline_result: PipelineResult
+    surface_judgments: List[SurfaceJudgment] = Field(default_factory=list)
+    merge_group_count: int = Field(ge=0)
+    flash_call_count: int = Field(ge=0)
+
+    model_config = ConfigDict(extra="forbid")
