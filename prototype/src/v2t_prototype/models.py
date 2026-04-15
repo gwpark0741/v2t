@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 
 EntityAudibility = Literal["audible", "likely_audible", "visual_only", "inactive"]
-InteractionType = Literal["hard_effect", "foley", "background", "electronic"]
+InteractionType = Literal["sfx", "ambience"]
 TrackType = Literal["sfx", "ambience"]
 DistanceProfile = Literal["near", "mid", "far"]
 WarningSeverity = Literal["error", "warning", "info"]
@@ -311,7 +311,6 @@ class Action(BaseModel):
     unknown_resolution: Optional[UnknownResolution] = None
     interaction_type: InteractionType
     sound_description: str
-    surface_context: Optional[str]
     observed_visual_description: str
     event: Union[OnsetEvent, ContinuousEvent]
     boundary_flag: bool
@@ -376,7 +375,6 @@ class Track(BaseModel):
     source_entity_id: str
     interaction_type: InteractionType
     sound_description: str
-    surface_context_summary: Optional[str]
     events: List[Union[OnsetEvent, ContinuousEvent]]
 
     model_config = ConfigDict(extra="forbid")
@@ -421,36 +419,31 @@ class PipelineResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-class SurfaceJudgment(BaseModel):
-    action_id_a: str
-    action_id_b: str
-    surface_context_a: str | None = None
-    surface_context_b: str | None = None
-    interaction_type: InteractionType
-    result: Literal["COMPATIBLE", "INCOMPATIBLE"]
+class TrackGroupResult(BaseModel):
+    action_ids: List[str]
     reason: str
-    source: Literal[
-        "null_both",
-        "null_one_side",
-        "normalize_match",
-        "cache_hit",
-        "flash",
-        "flash_error",
-    ]
-    model: str | None = None
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class TrackGroupJudgment(BaseModel):
+    group_key: str
+    input_action_ids: List[str]
+    output_groups: List[TrackGroupResult]
+    model: str | None
+    source: Literal["single_action", "llm", "llm_error"]
 
     model_config = ConfigDict(extra="forbid")
 
 
 class AgentCResult(BaseModel):
     pipeline_result: PipelineResult
-    surface_judgments: List[SurfaceJudgment] = Field(default_factory=list)
+    track_group_judgments: List[TrackGroupJudgment] = Field(default_factory=list)
     merge_group_count: int = Field(ge=0)
-    flash_call_count: int = Field(ge=0)
-    cache_hit_count: int = Field(ge=0)
-    total_flash_latency_ms: float = Field(ge=0.0)
-    per_call_flash_latency_ms: List[float] = Field(default_factory=list)
-    flash_usage: TokenUsage = Field(default_factory=TokenUsage)
-    estimated_flash_cost_usd: float = Field(default=0.0, ge=0.0)
+    llm_call_count: int = Field(ge=0)
+    total_llm_latency_ms: float = Field(ge=0.0)
+    per_call_llm_latency_ms: List[float] = Field(default_factory=list)
+    llm_usage: TokenUsage = Field(default_factory=TokenUsage)
+    estimated_llm_cost_usd: float = Field(default=0.0, ge=0.0)
 
     model_config = ConfigDict(extra="forbid")

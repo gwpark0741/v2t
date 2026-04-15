@@ -49,10 +49,12 @@ from v2t_prototype.models import (
     SegmentClip,
     SegmentPrepResult,
     SkippedCut,
-    SurfaceJudgment,
     StageErrorRecord,
     Track,
+    TrackGroupJudgment,
+    TrackGroupResult,
     TrackManifest,
+    TokenUsage,
     UnresolvedUnknown,
     UnknownResolution,
     VideoMetadata,
@@ -181,9 +183,8 @@ def _sample_agent_b_result(*, warnings: list[WarningItem] | None = None) -> Agen
                                 suggestion="UNRESOLVED",
                                 reason="unclear source",
                             ),
-                            "interaction_type": "hard_effect",
-                            "sound_description": "metal clash",
-                            "surface_context": "steel",
+                            "interaction_type": "sfx",
+                            "sound_description": "metal clash with a bright ring",
                             "observed_visual_description": "swords collide",
                             "event": ContinuousEvent(
                                 type="continuous",
@@ -210,23 +211,21 @@ def _sample_agent_b_result(*, warnings: list[WarningItem] | None = None) -> Agen
 def _sample_agent_c_result(
     *,
     warnings: list[WarningItem] | None = None,
-    surface_judgments: list[SurfaceJudgment] | None = None,
-    flash_call_count: int = 0,
-    cache_hit_count: int = 0,
-    total_flash_latency_ms: float = 0.0,
-    per_call_flash_latency_ms: list[float] | None = None,
+    track_group_judgments: list[TrackGroupJudgment] | None = None,
+    llm_call_count: int = 0,
+    total_llm_latency_ms: float = 0.0,
+    per_call_llm_latency_ms: list[float] | None = None,
 ) -> AgentCResult:
     return AgentCResult(
         pipeline_result=PipelineResult(
             track_manifest=TrackManifest(
                 tracks=[
                     Track(
-                        track_id="char_001__foley__steel",
+                        track_id="char_001__sfx__continuous",
                         track_type="sfx",
                         source_entity_id="char_001",
-                        interaction_type="foley",
+                        interaction_type="sfx",
                         sound_description="steel footstep",
-                        surface_context_summary="steel",
                         events=[ContinuousEvent(type="continuous", start_time=0.5, end_time=1.5)],
                     )
                 ]
@@ -236,18 +235,19 @@ def _sample_agent_c_result(
                     unknown_id="UNKNOWN_OBJECT_CUT001_1",
                     cut_id="CUT_001",
                     observed_visual_description="swords collide",
-                    interaction_type="hard_effect",
-                    sound_description="metal clash",
+                    interaction_type="sfx",
+                    sound_description="metal clash with a bright ring",
                 )
             ],
             warnings=list(warnings or []),
         ),
-        surface_judgments=list(surface_judgments or []),
+        track_group_judgments=list(track_group_judgments or []),
         merge_group_count=1,
-        flash_call_count=flash_call_count,
-        cache_hit_count=cache_hit_count,
-        total_flash_latency_ms=total_flash_latency_ms,
-        per_call_flash_latency_ms=list(per_call_flash_latency_ms or []),
+        llm_call_count=llm_call_count,
+        total_llm_latency_ms=total_llm_latency_ms,
+        per_call_llm_latency_ms=list(per_call_llm_latency_ms or []),
+        llm_usage=TokenUsage(),
+        estimated_llm_cost_usd=0.0,
     )
 
 
@@ -550,18 +550,18 @@ def test_write_agent_c_artifacts_writes_canonical_files_and_supports_reentry(tmp
     assert stage_dir == tmp_path / "run_agent_c_001" / AGENT_C_STAGE_DIR
     assert (stage_dir / "output.json").exists()
     assert (stage_dir / "warnings.json").exists()
-    assert (stage_dir / "surface_judgments.json").exists()
+    assert (stage_dir / "track_group_judgments.json").exists()
     assert (stage_dir / "report.html").exists()
 
     output_payload = json.loads((stage_dir / "output.json").read_text(encoding="utf-8"))
     warnings_payload = json.loads((stage_dir / "warnings.json").read_text(encoding="utf-8"))
-    surface_payload = json.loads((stage_dir / "surface_judgments.json").read_text(encoding="utf-8"))
+    track_group_payload = json.loads((stage_dir / "track_group_judgments.json").read_text(encoding="utf-8"))
 
     assert output_payload["merge_group_count"] == 1
-    assert output_payload["pipeline_result"]["track_manifest"]["tracks"][0]["track_id"] == "char_001__foley__steel"
+    assert output_payload["pipeline_result"]["track_manifest"]["tracks"][0]["track_id"] == "char_001__sfx__continuous"
     assert warnings_payload["stage"] == AGENT_C_STAGE_DIR
     assert warnings_payload["warnings"][0]["code"] == "AGENT_C_PIPELINE_VALIDATION_WARNING"
-    assert surface_payload == {"surface_judgments": []}
+    assert track_group_payload == {"track_group_judgments": []}
     assert "Stage 06 Report" in (stage_dir / "report.html").read_text(encoding="utf-8")
 
     manifest = load_run_manifest(tmp_path / "run_agent_c_001")
@@ -596,46 +596,49 @@ def test_write_agent_c_artifacts_writes_warnings_file_even_when_empty(tmp_path: 
     )
 
     warnings_payload = json.loads((stage_dir / "warnings.json").read_text(encoding="utf-8"))
-    surface_payload = json.loads((stage_dir / "surface_judgments.json").read_text(encoding="utf-8"))
+    track_group_payload = json.loads((stage_dir / "track_group_judgments.json").read_text(encoding="utf-8"))
     assert warnings_payload["stage"] == AGENT_C_STAGE_DIR
     assert warnings_payload["warnings"] == []
-    assert surface_payload == {"surface_judgments": []}
+    assert track_group_payload == {"track_group_judgments": []}
 
 
-def test_write_agent_c_artifacts_persists_surface_judgments(tmp_path: Path):
+def test_write_agent_c_artifacts_persists_track_group_judgments(tmp_path: Path):
     stage_dir = write_agent_c_artifacts(
         _sample_agent_c_result(
-            surface_judgments=[
-                SurfaceJudgment(
-                    action_id_a="act_001",
-                    action_id_b="act_002",
-                    interaction_type="hard_effect",
-                    surface_context_a="glass table",
-                    surface_context_b="wood composite table",
-                    result="INCOMPATIBLE",
-                    reason="Different material families.",
-                    source="flash",
+            track_group_judgments=[
+                TrackGroupJudgment(
+                    group_key="obj_001__sfx__onset",
+                    input_action_ids=["act_001", "act_002"],
+                    output_groups=[
+                        TrackGroupResult(
+                            action_ids=["act_001"],
+                            reason="separate click",
+                        ),
+                        TrackGroupResult(
+                            action_ids=["act_002"],
+                            reason="separate thump",
+                        ),
+                    ],
+                    source="llm",
                     model="gemini-2.5-flash",
                 )
             ],
-            flash_call_count=1,
-            cache_hit_count=1,
-            total_flash_latency_ms=18.75,
-            per_call_flash_latency_ms=[12.5, 6.25],
+            llm_call_count=1,
+            total_llm_latency_ms=18.75,
+            per_call_llm_latency_ms=[12.5, 6.25],
         ),
         video_path="/tmp/sample_video.mp4",
         runs_dir=tmp_path,
         run_id="run_agent_c_003",
     )
 
-    surface_payload = json.loads((stage_dir / "surface_judgments.json").read_text(encoding="utf-8"))
-    assert surface_payload["surface_judgments"][0]["source"] == "flash"
-    assert surface_payload["surface_judgments"][0]["model"] == "gemini-2.5-flash"
+    track_group_payload = json.loads((stage_dir / "track_group_judgments.json").read_text(encoding="utf-8"))
+    assert track_group_payload["track_group_judgments"][0]["source"] == "llm"
+    assert track_group_payload["track_group_judgments"][0]["model"] == "gemini-2.5-flash"
     output_payload = json.loads((stage_dir / "output.json").read_text(encoding="utf-8"))
-    assert output_payload["flash_call_count"] == 1
-    assert output_payload["cache_hit_count"] == 1
-    assert output_payload["total_flash_latency_ms"] == 18.75
-    assert output_payload["per_call_flash_latency_ms"] == [12.5, 6.25]
+    assert output_payload["llm_call_count"] == 1
+    assert output_payload["total_llm_latency_ms"] == 18.75
+    assert output_payload["per_call_llm_latency_ms"] == [12.5, 6.25]
 
 
 def test_manifest_tracks_stage_progress_across_stage_01_and_02(tmp_path: Path):

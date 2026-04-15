@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from typing import Any
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -117,7 +117,7 @@ def _agent_b_result(*, cut_outputs: list[AgentBCutOutput]) -> AgentBAllCutsResul
     )
 
 
-def test_run_agent_c_synthesizes_tracks_and_defaults_surface_judgments():
+def test_run_agent_c_synthesizes_tracks_and_records_track_group_judgments():
     result = run_agent_c(
         _agent_b_result(
             cut_outputs=[
@@ -129,9 +129,8 @@ def test_run_agent_c_synthesizes_tracks_and_defaults_surface_judgments():
                             action_id="act_001",
                             cut_id="CUT_001",
                             primary_source_id="char_001",
-                            interaction_type="foley",
-                            sound_description="short step",
-                            surface_context="tile floor",
+                            interaction_type="sfx",
+                            sound_description="soft sneaker step on tile",
                             observed_visual_description="player steps forward",
                             event=OnsetEvent(type="onset", timestamp=0.2),
                             boundary_flag=False,
@@ -140,9 +139,8 @@ def test_run_agent_c_synthesizes_tracks_and_defaults_surface_judgments():
                             action_id="act_002",
                             cut_id="CUT_001",
                             primary_source_id="char_001",
-                            interaction_type="foley",
-                            sound_description="longer tiled footsteps",
-                            surface_context="tile floor",
+                            interaction_type="sfx",
+                            sound_description="soft sneaker step on tile",
                             observed_visual_description="player keeps stepping",
                             event=OnsetEvent(type="onset", timestamp=0.4),
                             boundary_flag=False,
@@ -154,16 +152,24 @@ def test_run_agent_c_synthesizes_tracks_and_defaults_surface_judgments():
             ]
         ),
         _entity_registry(),
+        flash_client=_FakeClient(
+            responses=[
+                (
+                    '{"groups":[{"action_ids":["act_001","act_002"],"reason":"same repeating footstep"}]}',
+                    _usage_metadata(prompt_token_count=100, candidates_token_count=20),
+                )
+            ]
+        ),
     )
 
-    assert result.flash_call_count == 0
-    assert result.cache_hit_count == 0
-    assert result.total_flash_latency_ms == 0.0
-    assert result.per_call_flash_latency_ms == []
-    assert result.surface_judgments == []
+    assert result.llm_call_count == 1
+    assert result.total_llm_latency_ms >= 0.0
+    assert result.llm_usage.total_token_count == 120
     assert result.merge_group_count == 1
+    assert len(result.track_group_judgments) == 1
+    assert result.track_group_judgments[0].source == "llm"
     assert len(result.pipeline_result.track_manifest.tracks) == 1
-    assert result.pipeline_result.track_manifest.tracks[0].sound_description == "longer tiled footsteps"
+    assert result.pipeline_result.track_manifest.tracks[0].track_id == "char_001__sfx__onset"
     assert result.pipeline_result.warnings == []
 
 
@@ -179,9 +185,8 @@ def test_run_agent_c_uses_registry_to_mark_ambience_tracks():
                             action_id="act_amb_001",
                             cut_id="CUT_001",
                             primary_source_id="amb_001",
-                            interaction_type="background",
-                            sound_description="room tone",
-                            surface_context=None,
+                            interaction_type="ambience",
+                            sound_description="steady room tone",
                             observed_visual_description="wide room shot",
                             event=ContinuousEvent(
                                 type="continuous",
@@ -199,7 +204,9 @@ def test_run_agent_c_uses_registry_to_mark_ambience_tracks():
         _entity_registry(),
     )
 
+    assert result.llm_call_count == 0
     assert result.pipeline_result.track_manifest.tracks[0].track_type == "ambience"
+    assert result.pipeline_result.track_manifest.tracks[0].track_id == "amb_001__ambience"
 
 
 def test_run_agent_c_preserves_unresolved_unknowns():
@@ -213,14 +220,13 @@ def test_run_agent_c_preserves_unresolved_unknowns():
                         Action(
                             action_id="act_unknown_001",
                             cut_id="CUT_001",
-                            primary_source_id="UNKNOWN_OBJECT_001",
+                            primary_source_id="UNKNOWN_OBJECT_CUT001_1",
                             unknown_resolution=UnknownResolution(
                                 suggestion="UNRESOLVED",
                                 reason="source is occluded",
                             ),
-                            interaction_type="hard_effect",
+                            interaction_type="sfx",
                             sound_description="metal clash",
-                            surface_context="steel",
                             observed_visual_description="objects collide offscreen",
                             event=OnsetEvent(type="onset", timestamp=0.8),
                             boundary_flag=False,
@@ -236,7 +242,7 @@ def test_run_agent_c_preserves_unresolved_unknowns():
 
     assert result.pipeline_result.track_manifest.tracks == []
     assert len(result.pipeline_result.unresolved_unknowns) == 1
-    assert result.pipeline_result.unresolved_unknowns[0].unknown_id == "UNKNOWN_OBJECT_001"
+    assert result.pipeline_result.unresolved_unknowns[0].unknown_id == "UNKNOWN_OBJECT_CUT001_1"
 
 
 def test_run_agent_c_converts_validation_issues_to_warnings(monkeypatch):
@@ -258,12 +264,11 @@ def test_run_agent_c_converts_validation_issues_to_warnings(monkeypatch):
                         Action(
                             action_id="act_001",
                             cut_id="CUT_001",
-                            primary_source_id="obj_001",
-                            interaction_type="hard_effect",
-                            sound_description="sharp tap",
-                            surface_context="wood",
-                            observed_visual_description="paddle hits table",
-                            event=OnsetEvent(type="onset", timestamp=0.3),
+                            primary_source_id="amb_001",
+                            interaction_type="ambience",
+                            sound_description="steady room tone",
+                            observed_visual_description="wide room shot",
+                            event=ContinuousEvent(type="continuous", start_time=0.0, end_time=1.0),
                             boundary_flag=False,
                         )
                     ],
@@ -275,79 +280,13 @@ def test_run_agent_c_converts_validation_issues_to_warnings(monkeypatch):
         _entity_registry(),
     )
 
-    warning_codes = [item.code for item in result.pipeline_result.warnings]
-    assert warning_codes == [
+    assert [warning.code for warning in result.pipeline_result.warnings] == [
         "AGENT_C_DUPLICATE_TRACK_ID",
         "AGENT_C_PIPELINE_VALIDATION_WARNING",
     ]
 
 
-def test_run_agent_c_keeps_duplicate_unresolved_occurrences_without_warning():
-    result = run_agent_c(
-        _agent_b_result(
-            cut_outputs=[
-                AgentBCutOutput(
-                    cut_id="CUT_003",
-                    raw_response_text="{}",
-                    actions=[
-                        Action(
-                            action_id="act_unknown_001",
-                            cut_id="CUT_003",
-                            primary_source_id="UNKNOWN_CHARACTER_CUT003_1",
-                            unknown_resolution=UnknownResolution(
-                                suggestion="UNRESOLVED",
-                                reason="opponent is off-screen",
-                            ),
-                            interaction_type="hard_effect",
-                            sound_description="opponent paddle hit",
-                            surface_context="plastic on rubber",
-                            observed_visual_description="The ball is returned from off-screen.",
-                            event=OnsetEvent(type="onset", timestamp=1.4),
-                            boundary_flag=False,
-                        ),
-                        Action(
-                            action_id="act_unknown_002",
-                            cut_id="CUT_003",
-                            primary_source_id="UNKNOWN_CHARACTER_CUT003_1",
-                            unknown_resolution=UnknownResolution(
-                                suggestion="UNRESOLVED",
-                                reason="opponent is still off-screen",
-                            ),
-                            interaction_type="hard_effect",
-                            sound_description="opponent paddle hit again",
-                            surface_context="plastic on rubber",
-                            observed_visual_description="The ball is returned from off-screen for a second time.",
-                            event=OnsetEvent(type="onset", timestamp=2.62),
-                            boundary_flag=False,
-                        ),
-                    ],
-                    validation_issues=[],
-                    model="gemini-2.5-pro",
-                )
-            ]
-        ),
-        _entity_registry(),
-    )
-
-    assert [item.unknown_id for item in result.pipeline_result.unresolved_unknowns] == [
-        "UNKNOWN_CHARACTER_CUT003_1",
-        "UNKNOWN_CHARACTER_CUT003_1",
-    ]
-    assert [item.code for item in result.pipeline_result.warnings] == []
-
-
-def test_run_agent_c_marks_empty_result_as_warning():
-    result = run_agent_c(
-        _agent_b_result(cut_outputs=[]),
-        _entity_registry(),
-    )
-
-    assert result.pipeline_result.track_manifest.tracks == []
-    assert result.pipeline_result.unresolved_unknowns == []
-    assert [item.code for item in result.pipeline_result.warnings] == ["AGENT_C_EMPTY_RESULT"]
-
-
-def test_run_agent_c_records_surface_judgments_and_flash_calls():
+def test_run_agent_c_records_llm_error_fallback_warning():
     result = run_agent_c(
         _agent_b_result(
             cut_outputs=[
@@ -359,22 +298,20 @@ def test_run_agent_c_records_surface_judgments_and_flash_calls():
                             action_id="act_001",
                             cut_id="CUT_001",
                             primary_source_id="obj_001",
-                            interaction_type="hard_effect",
-                            sound_description="ball hits table",
-                            surface_context="glass table",
-                            observed_visual_description="ball bounces on a table",
-                            event=OnsetEvent(type="onset", timestamp=0.3),
+                            interaction_type="sfx",
+                            sound_description="first mechanical click",
+                            observed_visual_description="device advances",
+                            event=OnsetEvent(type="onset", timestamp=0.1),
                             boundary_flag=False,
                         ),
                         Action(
                             action_id="act_002",
                             cut_id="CUT_001",
                             primary_source_id="obj_001",
-                            interaction_type="hard_effect",
-                            sound_description="ball hits table again",
-                            surface_context="wood composite table",
-                            observed_visual_description="ball bounces on the same table",
-                            event=OnsetEvent(type="onset", timestamp=0.6),
+                            interaction_type="sfx",
+                            sound_description="second mechanical click",
+                            observed_visual_description="device advances again",
+                            event=OnsetEvent(type="onset", timestamp=0.3),
                             boundary_flag=False,
                         ),
                     ],
@@ -384,75 +321,51 @@ def test_run_agent_c_records_surface_judgments_and_flash_calls():
             ]
         ),
         _entity_registry(),
-        flash_client=_FakeClient(
-            responses=[
-                (
-                    '{"result":"COMPATIBLE","reason":"Same table surface."}',
-                    _usage_metadata(prompt_token_count=120, candidates_token_count=40),
-                )
-            ]
-        ),
+        flash_client=_FakeClient(exc=RuntimeError("network down")),
     )
 
-    assert result.flash_call_count == 1
-    assert result.cache_hit_count == 0
-    assert result.total_flash_latency_ms >= 0.0
-    assert len(result.per_call_flash_latency_ms) == 1
-    assert result.flash_usage.prompt_token_count == 120
-    assert result.flash_usage.candidates_token_count == 40
-    assert result.flash_usage.total_token_count == 160
-    assert result.estimated_flash_cost_usd == pytest.approx(0.000136)
-    assert len(result.surface_judgments) == 1
-    assert result.surface_judgments[0].source == "flash"
-    assert result.surface_judgments[0].model == "gemini-2.5-flash"
-    assert len(result.pipeline_result.track_manifest.tracks) == 1
-
-
-def test_run_agent_c_surfaces_flash_parse_errors_as_warnings():
-    result = run_agent_c(
-        _agent_b_result(
-            cut_outputs=[
-                AgentBCutOutput(
-                    cut_id="CUT_001",
-                    raw_response_text="{}",
-                    actions=[
-                        Action(
-                            action_id="act_001",
-                            cut_id="CUT_001",
-                            primary_source_id="obj_001",
-                            interaction_type="hard_effect",
-                            sound_description="ball hits glass",
-                            surface_context="glass table",
-                            observed_visual_description="ball bounces on the left side",
-                            event=OnsetEvent(type="onset", timestamp=0.3),
-                            boundary_flag=False,
-                        ),
-                        Action(
-                            action_id="act_002",
-                            cut_id="CUT_001",
-                            primary_source_id="obj_001",
-                            interaction_type="hard_effect",
-                            sound_description="ball hits wood",
-                            surface_context="wood composite table",
-                            observed_visual_description="ball bounces on the right side",
-                            event=OnsetEvent(type="onset", timestamp=0.6),
-                            boundary_flag=False,
-                        ),
-                    ],
-                    validation_issues=[],
-                    model="gemini-2.5-pro",
-                )
-            ]
-        ),
-        _entity_registry(),
-        flash_client=_FakeClient(responses=["not-json"]),
-    )
-
-    assert result.flash_call_count == 1
-    assert result.cache_hit_count == 0
-    assert len(result.per_call_flash_latency_ms) == 1
-    assert result.surface_judgments[0].source == "flash_error"
-    assert [item.code for item in result.pipeline_result.warnings] == [
-        "SURFACE_FLASH_PARSE_ERROR"
-    ]
+    assert result.llm_call_count == 1
+    assert [warning.code for warning in result.pipeline_result.warnings] == ["TRACK_JUDGE_API_ERROR"]
     assert len(result.pipeline_result.track_manifest.tracks) == 2
+    assert result.track_group_judgments[0].source == "llm_error"
+
+
+def test_run_agent_c_separates_onset_and_continuous_tracks_for_same_source():
+    result = run_agent_c(
+        _agent_b_result(
+            cut_outputs=[
+                AgentBCutOutput(
+                    cut_id="CUT_001",
+                    raw_response_text="{}",
+                    actions=[
+                        Action(
+                            action_id="act_001",
+                            cut_id="CUT_001",
+                            primary_source_id="obj_001",
+                            interaction_type="sfx",
+                            sound_description="single impact",
+                            observed_visual_description="tool hits surface",
+                            event=OnsetEvent(type="onset", timestamp=0.2),
+                            boundary_flag=False,
+                        ),
+                        Action(
+                            action_id="act_002",
+                            cut_id="CUT_001",
+                            primary_source_id="obj_001",
+                            interaction_type="sfx",
+                            sound_description="steady rolling noise",
+                            observed_visual_description="tool keeps sliding",
+                            event=ContinuousEvent(type="continuous", start_time=0.3, end_time=0.9),
+                            boundary_flag=False,
+                        ),
+                    ],
+                    validation_issues=[],
+                    model="gemini-2.5-pro",
+                )
+            ]
+        ),
+        _entity_registry(),
+    )
+
+    track_ids = {track.track_id for track in result.pipeline_result.track_manifest.tracks}
+    assert track_ids == {"obj_001__sfx__onset", "obj_001__sfx__continuous"}

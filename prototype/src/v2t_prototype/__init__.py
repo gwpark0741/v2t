@@ -3,7 +3,7 @@ from __future__ import annotations
 from .agent_a import build_agent_a_request, validate_agent_a_response
 from .agent_b import build_agent_b_cut_input, validate_agent_b_response
 from .agent_c import run_agent_c
-from .surface_judge import SurfaceJudge, normalize_surface
+from .track_judge import DEFAULT_TRACK_JUDGE_MODEL, TRACK_JUDGE_SYSTEM_PROMPT, TrackJudge
 from .agent_a_runtime import (
     AgentAPostValidationError,
     AgentAResponseParseError,
@@ -86,8 +86,9 @@ from .models import (
     StageErrorRecord,
     StageStatus,
     StageWarningsRecord,
-    SurfaceJudgment,
     Track,
+    TrackGroupJudgment,
+    TrackGroupResult,
     TrackManifest,
     TrackType,
     TokenUsage,
@@ -96,7 +97,7 @@ from .models import (
     VideoMetadata,
     WarningItem,
 )
-from .merge_rules import canonical_should_merge, default_surface_compatibility
+from .merge_rules import canonical_should_merge
 from .preprocessing import (
     collect_local_preprocessing_warnings,
     detect_cuts,
@@ -154,9 +155,10 @@ __all__ = [
     "StageErrorRecord",
     "StageStatus",
     "StageWarningsRecord",
-    "SurfaceJudgment",
-    "SurfaceJudge",
     "Track",
+    "TrackGroupJudgment",
+    "TrackGroupResult",
+    "TrackJudge",
     "TrackManifest",
     "TrackType",
     "TokenUsage",
@@ -179,7 +181,8 @@ __all__ = [
     "DEFAULT_AGENT_A_MODEL",
     "DEFAULT_AGENT_B_MODEL",
     "DEFAULT_AGENT_B_SYSTEM_PROMPT",
-    "default_surface_compatibility",
+    "DEFAULT_TRACK_JUDGE_MODEL",
+    "TRACK_JUDGE_SYSTEM_PROMPT",
     "ensure_run_manifest",
     "extract_video_metadata",
     "generate_run_id",
@@ -199,7 +202,6 @@ __all__ = [
     "run_agent_b_all_cuts_parallel",
     "run_agent_b_for_cut",
     "run_agent_c",
-    "normalize_surface",
     "upload_video_file",
     "write_full_video_asset_artifacts",
     "write_agent_a_artifacts",

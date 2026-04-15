@@ -532,11 +532,11 @@ def write_agent_c_artifacts(
         stage=AGENT_C_STAGE_DIR,
         warnings=list(result.pipeline_result.warnings),
     )
-    (stage_dir / "surface_judgments.json").write_text(
+    (stage_dir / "track_group_judgments.json").write_text(
         json.dumps(
             {
-                "surface_judgments": [
-                    item.model_dump(mode="json") for item in result.surface_judgments
+                "track_group_judgments": [
+                    item.model_dump(mode="json") for item in result.track_group_judgments
                 ]
             },
             indent=2,

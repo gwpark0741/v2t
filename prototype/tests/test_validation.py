@@ -17,18 +17,16 @@ def test_validate_track_manifest_consistency_reports_duplicates():
         track_id="trk_dupe",
         track_type="sfx",
         source_entity_id="obj_001",
-        interaction_type="hard_effect",
+        interaction_type="sfx",
         sound_description="clink",
-        surface_context_summary="metal",
         events=[OnsetEvent(type="onset", timestamp=0.2)],
     )
     track_b = Track(
         track_id="trk_dupe",
         track_type="sfx",
         source_entity_id="obj_002",
-        interaction_type="hard_effect",
+        interaction_type="sfx",
         sound_description="clack",
-        surface_context_summary="wood",
         events=[OnsetEvent(type="onset", timestamp=0.4)],
     )
     issues = validate_track_manifest_consistency(TrackManifest(tracks=[track_a, track_b]))
@@ -40,9 +38,8 @@ def test_validate_pipeline_result_ignores_duplicate_unresolved_unknown_ids():
         track_id="trk_uniq",
         track_type="sfx",
         source_entity_id="obj_003",
-        interaction_type="foley",
+        interaction_type="sfx",
         sound_description="footsteps",
-        surface_context_summary="tile",
         events=[OnsetEvent(type="onset", timestamp=0.2)],
     )
     manifest = TrackManifest(tracks=[track])
@@ -51,7 +48,7 @@ def test_validate_pipeline_result_ignores_duplicate_unresolved_unknown_ids():
         unknown_id="UNKNOWN_1",
         cut_id="CUT_001",
         observed_visual_description="strange tool",
-        interaction_type="hard_effect",
+        interaction_type="sfx",
         sound_description="clang",
     )
     result = PipelineResult(

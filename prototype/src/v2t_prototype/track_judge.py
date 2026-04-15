@@ -1,0 +1,291 @@
+from __future__ import annotations
+
+import json
+import time
+from dataclasses import dataclass
+from typing import Any, Literal
+
+from google.genai import types
+
+from .gemini_client import create_gemini_client
+from .gemini_metrics import add_token_usage, estimate_model_cost_usd, extract_token_usage
+from .models import Action, TokenUsage, TrackGroupJudgment, TrackGroupResult, WarningItem
+
+
+DEFAULT_TRACK_JUDGE_MODEL = "gemini-2.5-flash"
+TRACK_JUDGE_SYSTEM_PROMPT = """You are a sound track grouping judge for a video sound design pipeline.
+
+Given a list of sound actions that share the same source, interaction type,
+and event type, decide which actions belong to the same audio track.
+
+A track represents sounds that can be covered by a single audio asset.
+Group actions that describe acoustically equivalent events.
+Actions with clearly different acoustic character must be in separate groups.
+
+Respond ONLY with valid JSON. No explanation outside the JSON.
+{
+  "groups": [
+    {
+      "action_ids": ["act_001", "act_002"],
+      "reason": "<one sentence>"
+    }
+  ]
+}
+
+Rules:
+- Every input action_id must appear in exactly one group.
+- When uncertain, keep actions in separate groups (conservative).
+- Use cut_id to understand temporal context across the video.
+"""
+
+
+@dataclass(frozen=True)
+class _LLMGroupResult:
+    groups: list[TrackGroupResult]
+    source: Literal["llm", "llm_error"]
+
+
+def _build_payload(
+    actions: list[Action],
+    source_id: str,
+    interaction_type: str,
+    event_type: str,
+) -> str:
+    return json.dumps(
+        {
+            "group_context": {
+                "source_entity_id": source_id,
+                "interaction_type": interaction_type,
+                "event_type": event_type,
+            },
+            "actions": [
+                {
+                    "action_id": action.action_id,
+                    "cut_id": action.cut_id,
+                    "sound_description": action.sound_description,
+                    "observed_visual_description": action.observed_visual_description,
+                }
+                for action in actions
+            ],
+        },
+        ensure_ascii=False,
+        indent=2,
+    )
+
+
+def _build_generation_config() -> types.GenerateContentConfig:
+    return types.GenerateContentConfig(
+        system_instruction=TRACK_JUDGE_SYSTEM_PROMPT,
+        response_mime_type="application/json",
+    )
+
+
+def _fallback_groups(actions: list[Action], *, reason: str = "fallback") -> list[TrackGroupResult]:
+    return [
+        TrackGroupResult(action_ids=[action.action_id], reason=reason)
+        for action in actions
+    ]
+
+
+class TrackJudge:
+    def __init__(
+        self,
+        flash_client: Any | None = None,
+        model: str = DEFAULT_TRACK_JUDGE_MODEL,
+    ) -> None:
+        self._judgments: list[TrackGroupJudgment] = []
+        self._warnings: list[WarningItem] = []
+        self._llm_call_count = 0
+        self._per_call_llm_latency_ms: list[float] = []
+        self._llm_usage = TokenUsage()
+        self._estimated_llm_cost_usd = 0.0
+        self.flash_client = flash_client
+        self.model = model
+
+    @property
+    def llm_call_count(self) -> int:
+        return self._llm_call_count
+
+    @property
+    def total_llm_latency_ms(self) -> float:
+        return sum(self._per_call_llm_latency_ms)
+
+    @property
+    def per_call_llm_latency_ms(self) -> list[float]:
+        return list(self._per_call_llm_latency_ms)
+
+    @property
+    def llm_usage(self) -> TokenUsage:
+        return self._llm_usage.model_copy()
+
+    @property
+    def estimated_llm_cost_usd(self) -> float:
+        return self._estimated_llm_cost_usd
+
+    def get_judgments(self) -> list[TrackGroupJudgment]:
+        return list(self._judgments)
+
+    def get_warnings(self) -> list[WarningItem]:
+        return list(self._warnings)
+
+    def judge_group(
+        self,
+        actions: list[Action],
+        source_id: str,
+        interaction_type: str,
+        event_type: str,
+    ) -> list[list[Action]]:
+        group_key = f"{source_id}__{interaction_type}__{event_type}"
+        if len(actions) == 1:
+            groups = [TrackGroupResult(action_ids=[actions[0].action_id], reason="single action")]
+            self._record(group_key, actions, groups, source="single_action", model=None)
+            return [list(actions)]
+
+        result = self._call_llm(actions, source_id, interaction_type, event_type)
+        self._record(group_key, actions, result.groups, source=result.source, model=self.model)
+        return self._resolve_groups(actions, result.groups)
+
+    def _call_llm(
+        self,
+        actions: list[Action],
+        source_id: str,
+        interaction_type: str,
+        event_type: str,
+    ) -> _LLMGroupResult:
+        self._llm_call_count += 1
+        payload = _build_payload(actions, source_id, interaction_type, event_type)
+        runtime_client = self.flash_client or create_gemini_client()
+        started_at = time.monotonic()
+        try:
+            response = runtime_client.models.generate_content(
+                model=self.model,
+                contents=payload,
+                config=_build_generation_config(),
+            )
+        except Exception as exc:
+            self._warnings.append(
+                WarningItem(
+                    code="TRACK_JUDGE_API_ERROR",
+                    severity="warning",
+                    message="TrackJudge LLM API call failed; falling back to per-action groups.",
+                    context={
+                        "source_entity_id": source_id,
+                        "interaction_type": interaction_type,
+                        "event_type": event_type,
+                        "error": str(exc),
+                    },
+                )
+            )
+            return _LLMGroupResult(groups=_fallback_groups(actions), source="llm_error")
+
+        latency_ms = (time.monotonic() - started_at) * 1000.0
+        self._per_call_llm_latency_ms.append(latency_ms)
+        usage = extract_token_usage(response)
+        self._llm_usage = add_token_usage(self._llm_usage, usage)
+        self._estimated_llm_cost_usd += estimate_model_cost_usd(self.model, usage)
+        return self._parse_response(
+            response.text or "",
+            actions,
+            source_id=source_id,
+            interaction_type=interaction_type,
+            event_type=event_type,
+        )
+
+    def _parse_response(
+        self,
+        raw: str,
+        actions: list[Action],
+        *,
+        source_id: str,
+        interaction_type: str,
+        event_type: str,
+    ) -> _LLMGroupResult:
+        fallback = _fallback_groups(actions)
+        try:
+            data = json.loads(raw.strip())
+            groups = data.get("groups")
+            if not isinstance(groups, list) or not groups:
+                raise ValueError("empty groups")
+
+            parsed_groups: list[TrackGroupResult] = []
+            for group in groups:
+                if not isinstance(group, dict):
+                    raise ValueError("invalid group item")
+                action_ids = group.get("action_ids")
+                reason = group.get("reason")
+                if not isinstance(action_ids, list) or not action_ids:
+                    raise ValueError("invalid action_ids")
+                if not all(isinstance(action_id, str) for action_id in action_ids):
+                    raise ValueError("non-string action_id")
+                if not isinstance(reason, str) or not reason.strip():
+                    raise ValueError("missing reason")
+                parsed_groups.append(
+                    TrackGroupResult(action_ids=action_ids, reason=reason)
+                )
+
+            input_ids = {action.action_id for action in actions}
+            output_ids = [action_id for group in parsed_groups for action_id in group.action_ids]
+            if len(output_ids) != len(set(output_ids)) or set(output_ids) != input_ids:
+                self._warnings.append(
+                    WarningItem(
+                        code="TRACK_JUDGE_ID_MISMATCH",
+                        severity="warning",
+                        message="TrackJudge returned invalid action coverage; falling back to per-action groups.",
+                        context={
+                            "source_entity_id": source_id,
+                            "interaction_type": interaction_type,
+                            "event_type": event_type,
+                            "input_action_ids": sorted(input_ids),
+                            "output_action_ids": output_ids,
+                        },
+                    )
+                )
+                return _LLMGroupResult(groups=fallback, source="llm_error")
+
+            return _LLMGroupResult(groups=parsed_groups, source="llm")
+        except Exception as exc:
+            self._warnings.append(
+                WarningItem(
+                    code="TRACK_JUDGE_PARSE_ERROR",
+                    severity="warning",
+                    message="TrackJudge response could not be parsed; falling back to per-action groups.",
+                    context={
+                        "source_entity_id": source_id,
+                        "interaction_type": interaction_type,
+                        "event_type": event_type,
+                        "error": str(exc),
+                        "raw_response_text": raw,
+                    },
+                )
+            )
+            return _LLMGroupResult(groups=fallback, source="llm_error")
+
+    def _resolve_groups(
+        self,
+        actions: list[Action],
+        groups: list[TrackGroupResult],
+    ) -> list[list[Action]]:
+        actions_by_id = {action.action_id: action for action in actions}
+        return [
+            [actions_by_id[action_id] for action_id in group.action_ids]
+            for group in groups
+        ]
+
+    def _record(
+        self,
+        group_key: str,
+        actions: list[Action],
+        groups: list[TrackGroupResult],
+        *,
+        source: Literal["single_action", "llm", "llm_error"],
+        model: str | None,
+    ) -> None:
+        self._judgments.append(
+            TrackGroupJudgment(
+                group_key=group_key,
+                input_action_ids=[action.action_id for action in actions],
+                output_groups=groups,
+                model=model,
+                source=source,
+            )
+        )

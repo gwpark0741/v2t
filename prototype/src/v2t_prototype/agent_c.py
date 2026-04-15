@@ -4,7 +4,7 @@ from typing import Any
 
 from .models import AgentBAllCutsResult, AgentCResult, EntityRegistry, PipelineResult, WarningItem
 from .synthesizer import synthesize_tracks
-from .surface_judge import DEFAULT_SURFACE_JUDGE_MODEL, SurfaceJudge
+from .track_judge import DEFAULT_TRACK_JUDGE_MODEL, TrackJudge
 from .validation import validate_pipeline_result
 
 
@@ -53,22 +53,22 @@ def run_agent_c(
     entity_registry: EntityRegistry,
     *,
     flash_client: Any | None = None,
-    flash_model: str = DEFAULT_SURFACE_JUDGE_MODEL,
+    flash_model: str = DEFAULT_TRACK_JUDGE_MODEL,
 ) -> AgentCResult:
     actions = [
         action
         for cut_output in agent_b_all_cuts.cut_outputs
         for action in cut_output.actions
     ]
-    surface_judge = SurfaceJudge(flash_client=flash_client, model=flash_model)
+    track_judge = TrackJudge(flash_client=flash_client, model=flash_model)
     pipeline_result = synthesize_tracks(
         actions,
         source_entity_kind_by_id=_build_source_entity_kind_by_id(entity_registry),
-        surface_judge=surface_judge,
+        track_judge=track_judge,
     )
 
     warnings = list(pipeline_result.warnings)
-    warnings.extend(surface_judge.get_warnings())
+    warnings.extend(track_judge.get_warnings())
     warnings.extend(
         _warning_from_validation_issue(issue) for issue in validate_pipeline_result(pipeline_result)
     )
@@ -78,12 +78,11 @@ def run_agent_c(
     pipeline_result = pipeline_result.model_copy(update={"warnings": warnings})
     return AgentCResult(
         pipeline_result=pipeline_result,
-        surface_judgments=surface_judge.get_judgments(),
+        track_group_judgments=track_judge.get_judgments(),
         merge_group_count=len(pipeline_result.track_manifest.tracks),
-        flash_call_count=surface_judge.flash_call_count,
-        cache_hit_count=surface_judge.cache_hit_count,
-        total_flash_latency_ms=surface_judge.total_flash_latency_ms,
-        per_call_flash_latency_ms=surface_judge.per_call_flash_latency_ms,
-        flash_usage=surface_judge.flash_usage,
-        estimated_flash_cost_usd=surface_judge.estimated_flash_cost_usd,
+        llm_call_count=track_judge.llm_call_count,
+        total_llm_latency_ms=track_judge.total_llm_latency_ms,
+        per_call_llm_latency_ms=track_judge.per_call_llm_latency_ms,
+        llm_usage=track_judge.llm_usage,
+        estimated_llm_cost_usd=track_judge.estimated_llm_cost_usd,
     )
