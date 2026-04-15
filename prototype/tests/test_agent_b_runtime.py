@@ -29,7 +29,6 @@ from v2t_prototype.models import (
     KeyObject,
     SegmentClip,
     SegmentPrepResult,
-    UnknownResolution,
 )
 
 
@@ -103,14 +102,6 @@ def _agent_a_output() -> AgentARuntimeOutput:
     )
 
 
-def _segment_prep() -> SegmentPrepResult:
-    return SegmentPrepResult(
-        clips=[_clip("CUT_001"), _clip("CUT_002")],
-        skipped_cuts=[],
-        warnings=[],
-    )
-
-
 def _make_runtime_input():
     return build_agent_b_cut_input(_clip(), _cut(), _entity_registry())
 
@@ -120,9 +111,8 @@ def _valid_action_dict(**overrides):
         "action_id": "act_CUT_001_001",
         "cut_id": "CUT_001",
         "primary_source_id": "obj_001",
-        "interaction_type": "hard_effect",
-        "sound_description": "metal sword clash",
-        "surface_context": "steel",
+        "interaction_type": "sfx",
+        "sound_description": "metal sword clash with a sharp ring",
         "observed_visual_description": "two swords collide",
         "event": {
             "type": "continuous",
@@ -300,14 +290,15 @@ def test_run_agent_b_for_cut_accepts_boundary_event_when_cut_duration_rounds_dow
     assert output.actions[0].event.end_time == pytest.approx(6.433)
 
 
-def test_agent_b_system_prompt_includes_surface_formatting_rules():
-    assert 'Format: "{material_a} on {material_b}"' in DEFAULT_AGENT_B_SYSTEM_PROMPT
-    assert "Fill ONLY for hard_effect and foley. Set null for background and electronic." in DEFAULT_AGENT_B_SYSTEM_PROMPT
+def test_agent_b_system_prompt_includes_new_interaction_types_and_examples():
+    assert "sfx      — all individual sound events" in DEFAULT_AGENT_B_SYSTEM_PROMPT
+    assert "ambience — continuous spatial sound with no specific source" in DEFAULT_AGENT_B_SYSTEM_PROMPT
+    assert "surface_context" not in DEFAULT_AGENT_B_SYSTEM_PROMPT
+    assert "Light, steady rain falling on wet city pavement and surfaces." in DEFAULT_AGENT_B_SYSTEM_PROMPT
+    assert "Forceful burst of powdery snow, a quick whoosh, and muffled landing." in DEFAULT_AGENT_B_SYSTEM_PROMPT
     assert "All event timestamps must be relative to THIS clip." in DEFAULT_AGENT_B_SYSTEM_PROMPT
     assert "The clip always starts at 0.0 seconds." in DEFAULT_AGENT_B_SYSTEM_PROMPT
     assert "Do NOT use full-video absolute timestamps." in DEFAULT_AGENT_B_SYSTEM_PROMPT
-    assert '"plastic on wood"' in DEFAULT_AGENT_B_SYSTEM_PROMPT
-    assert '"plastic ball hitting the wooden composite table surface"' in DEFAULT_AGENT_B_SYSTEM_PROMPT
 
 
 def test_run_agent_b_for_cut_retries_after_parse_error():
@@ -337,7 +328,6 @@ def test_run_agent_b_for_cut_normalizes_onset_event_type_variant():
                         "type": "OnsetEvent",
                         "timestamp": 0.8,
                     },
-                    surface_context=None,
                 )
             ]
         }
@@ -363,33 +353,6 @@ def test_run_agent_b_for_cut_normalizes_continuous_event_type_variant():
                     boundary_flag=False,
                     event={
                         "type": "continuous_event",
-                        "start_time": 0.5,
-                        "end_time": 1.5,
-                    },
-                )
-            ]
-        }
-    )
-    client = _mock_client_with_texts(response_text)
-
-    with patch("v2t_prototype.agent_b_runtime.types.Part.from_uri") as part_from_uri:
-        part_from_uri.return_value = SimpleNamespace(content="clip")
-        output = run_agent_b_for_cut(input_model, client=client)
-
-    assert output.validation_issues == []
-    assert len(output.actions) == 1
-    assert output.actions[0].event.type == "continuous"
-
-
-def test_run_agent_b_for_cut_normalizes_mixed_case_event_type_variant():
-    input_model = _make_runtime_input()
-    response_text = json.dumps(
-        {
-            "actions": [
-                _valid_action_dict(
-                    boundary_flag=False,
-                    event={
-                        "type": "  ConTinuous_Event  ",
                         "start_time": 0.5,
                         "end_time": 1.5,
                     },
@@ -534,9 +497,8 @@ def test_run_agent_b_all_cuts_parallel_aggregates_outputs_and_failures():
                             "suggestion": "UNRESOLVED",
                             "reason": "not clear",
                         },
-                        "interaction_type": "hard_effect",
-                        "sound_description": "metal clang",
-                        "surface_context": "steel",
+                        "interaction_type": "sfx",
+                        "sound_description": "metal clang with a bright ring",
                         "observed_visual_description": "swords collide",
                         "event": {
                             "type": "continuous",

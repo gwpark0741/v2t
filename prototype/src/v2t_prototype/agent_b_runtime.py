@@ -58,38 +58,31 @@ RULES
        suggestion: UNRESOLVED
 
 4. Classify interaction_type — choose exactly one:
-   hard_effect  — physical contact, collision, mechanism
-   foley        — body movement, footsteps, clothing, biological motion
-   background   — ambient environment, no specific source
-   electronic   — motors, signals, electronic devices
+   sfx      — all individual sound events: physical contact, impact, friction,
+              footsteps, clothing, body movement, mechanisms, electronic devices
+   ambience — continuous spatial sound with no specific source:
+              environment, crowd, wind, room tone
 
 5. Fill these fields for every action:
 
    sound_description:
-     Describe the sound itself in one sentence.
+     - Describe the sound clearly in one sentence.
+     - For sfx, include material/contact cues naturally if relevant.
+     - Prefer descriptions that make the acoustic identity stable across cuts.
+
+   Preferred style examples:
+     Ambience:
+       "Light, steady rain falling on wet city pavement and surfaces."
+       "Gentle ocean waves washing ashore in the distance."
+       "Arctic wind blowing during a heavy, steady snowfall."
+
+     Sfx:
+       "Slow, solitary footsteps with a slight splash on wet pavement, steady rhythm."
+       "Forceful burst of powdery snow, a quick whoosh, and muffled landing."
+       "deep wooden groans, hull straining, water splashing"
 
    observed_visual_description:
      Describe what you see that produces this sound.
-
-   surface_context:
-     - Fill ONLY for hard_effect and foley. Set null for background and electronic.
-     - Format: "{material_a} on {material_b}"
-       - material_a: the moving or striking surface
-       - material_b: the receiving surface
-     - Use material/texture words only. No object names, no adjectives, no verbs.
-     - Keep it short. Two materials in direct contact, nothing else.
-
-     GOOD:
-       "plastic on wood"
-       "rubber on ceramic tile"
-       "leather on metal"
-       "cloth on skin"
-
-     BAD:
-       "plastic ball hitting the wooden composite table surface"  — sentence form
-       "the ball bounces on the table"                           — motion verb, no material
-       "rubber sole on a smooth hardwood gym floor"              — adjectives, object name
-       "hard plastic vs glass"                                   — wrong separator
 
 6. Choose event type:
    - All event timestamps must be relative to THIS clip.
