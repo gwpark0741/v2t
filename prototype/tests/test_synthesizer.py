@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from v2t_prototype.models import Action, OnsetEvent, UnknownResolution
+from v2t_prototype.models import Action, OnsetEvent, TrackGroupResult, UnknownResolution
 from v2t_prototype.synthesizer import synthesize_tracks
+from v2t_prototype.track_judge import TrackJudge, TrackJudgeDecision
 
 
 def make_action(
@@ -41,6 +42,7 @@ class FakeTrackJudge:
     def __init__(self, groups_by_key: dict[tuple[str, str, str], list[list[str]]] | None = None):
         self.calls: list[tuple[str, str, str]] = []
         self.groups_by_key = groups_by_key or {}
+        self.judgments = []
 
     def judge_group(self, actions, source_id, interaction_type, event_type):
         key = (source_id, interaction_type, event_type)
@@ -50,6 +52,33 @@ class FakeTrackJudge:
         if group_ids is None:
             return [list(actions)]
         return [[action_by_id[action_id] for action_id in group] for group in group_ids]
+
+    def judge_group_decision(self, actions, source_id, interaction_type, event_type, *, record):
+        grouped_actions = self.judge_group(actions, source_id, interaction_type, event_type)
+        group_results = [
+            TrackGroupResult(
+                action_ids=[action.action_id for action in group],
+                reason="fake grouping",
+            )
+            for group in grouped_actions
+        ]
+        return TrackJudgeDecision(
+            groups=grouped_actions,
+            group_results=group_results,
+            source="llm",
+            model="fake-model",
+        )
+
+    def record_judgment(self, group_key, actions, groups, *, source, model):
+        self.judgments.append(
+            {
+                "group_key": group_key,
+                "input_action_ids": [action.action_id for action in actions],
+                "output_groups": groups,
+                "source": source,
+                "model": model,
+            }
+        )
 
 
 def test_synthesize_tracks_collects_unresolved_unknowns():
@@ -97,6 +126,7 @@ def test_synthesize_tracks_reassigns_unknown_source_before_grouping():
     assert len(result.track_manifest.tracks) == 1
     assert result.track_manifest.tracks[0].source_entity_id == "obj_001"
     assert len(result.track_manifest.tracks[0].events) == 2
+    assert result.track_manifest.tracks[0].track_number == 1
 
 
 def test_synthesize_tracks_marks_ambience_without_llm_grouping():
@@ -118,7 +148,6 @@ def test_synthesize_tracks_marks_ambience_without_llm_grouping():
                 {"type": "continuous", "start_time": 2.0, "end_time": 4.0},
             ),
         ],
-        source_entity_kind_by_id={"amb_001": "AmbienceSource"},
         track_judge=judge,
     )
 
@@ -126,6 +155,7 @@ def test_synthesize_tracks_marks_ambience_without_llm_grouping():
     assert len(result.track_manifest.tracks) == 1
     assert result.track_manifest.tracks[0].track_id == "amb_001__ambience"
     assert result.track_manifest.tracks[0].track_type == "ambience"
+    assert result.track_manifest.tracks[0].track_number == 1
 
 
 def test_synthesize_tracks_splits_onset_and_continuous_before_track_judge():
@@ -144,8 +174,7 @@ def test_synthesize_tracks_splits_onset_and_continuous_before_track_judge():
         track_judge=judge,
     )
 
-    assert ("obj_001", "sfx", "onset") in judge.calls
-    assert ("obj_001", "sfx", "continuous") in judge.calls
+    assert judge.calls == []
     assert {track.track_id for track in result.track_manifest.tracks} == {
         "obj_001__sfx__onset",
         "obj_001__sfx__continuous",
@@ -171,6 +200,26 @@ def test_synthesize_tracks_uses_desc_key_for_multi_group_sfx_ids():
     assert "char_001__sfx__onset__heavy_boot_step_on_gravel" in track_ids
 
 
+def test_synthesize_tracks_uses_voice_prefix_for_voice_tracks():
+    judge = FakeTrackJudge(
+        {
+            ("char_001", "voice", "onset"): [["voice_a"], ["voice_b"]],
+        }
+    )
+    result = synthesize_tracks(
+        [
+            make_action("voice_a", "char_001", "voice", "Short strained grunt", {"type": "onset", "timestamp": 0.1}),
+            make_action("voice_b", "char_001", "voice", "Sharp pain cry", {"type": "onset", "timestamp": 0.4}),
+        ],
+        track_judge=judge,
+    )
+
+    track_ids = {track.track_id for track in result.track_manifest.tracks}
+    assert "char_001__voice__onset__short_strained_grunt" in track_ids
+    assert "char_001__voice__onset__sharp_pain_cry" in track_ids
+    assert {track.track_type for track in result.track_manifest.tracks} == {"voice"}
+
+
 def test_synthesize_tracks_adds_hash_suffix_when_desc_keys_collide():
     judge = FakeTrackJudge(
         {
@@ -179,8 +228,20 @@ def test_synthesize_tracks_adds_hash_suffix_when_desc_keys_collide():
     )
     result = synthesize_tracks(
         [
-            make_action("step_a", "char_001", "sfx", "Footstep!!!", {"type": "onset", "timestamp": 0.1}),
-            make_action("step_b", "char_001", "sfx", "Footstep???", {"type": "onset", "timestamp": 0.4}),
+            make_action(
+                "step_a",
+                "char_001",
+                "sfx",
+                "Very long repeated description for collision alpha variation",
+                {"type": "onset", "timestamp": 0.1},
+            ),
+            make_action(
+                "step_b",
+                "char_001",
+                "sfx",
+                "Very long repeated description for collision beta variation",
+                {"type": "onset", "timestamp": 0.4},
+            ),
         ],
         track_judge=judge,
     )
@@ -188,7 +249,7 @@ def test_synthesize_tracks_adds_hash_suffix_when_desc_keys_collide():
     track_ids = [track.track_id for track in result.track_manifest.tracks]
     assert len(track_ids) == 2
     assert track_ids[0] != track_ids[1]
-    assert all(track_id.startswith("char_001__sfx__onset__footstep") for track_id in track_ids)
+    assert all(track_id.startswith("char_001__sfx__onset__very_long_repeated_description_for_coll") for track_id in track_ids)
 
 
 def test_synthesize_tracks_sorts_events_within_a_group():
@@ -210,16 +271,100 @@ def test_synthesize_tracks_sorts_events_within_a_group():
     assert track.sound_description == "early hit"
 
 
-def test_synthesize_tracks_uses_single_action_groups_without_track_judge():
+def test_synthesize_tracks_deterministically_merges_same_normalized_description_without_track_judge():
     result = synthesize_tracks(
         [
-            make_action("a1", "obj_001", "sfx", "first hit", {"type": "onset", "timestamp": 0.1}),
-            make_action("a2", "obj_001", "sfx", "second hit", {"type": "onset", "timestamp": 0.2}),
+            make_action("a1", "obj_001", "sfx", "Footstep!!!", {"type": "onset", "timestamp": 0.1}),
+            make_action("a2", "obj_001", "sfx", "Footstep???", {"type": "onset", "timestamp": 0.2}),
         ]
     )
 
-    assert len(result.track_manifest.tracks) == 2
-    assert {track.track_id for track in result.track_manifest.tracks} == {
-        "obj_001__sfx__onset__first_hit",
-        "obj_001__sfx__onset__second_hit",
-    }
+    assert len(result.track_manifest.tracks) == 1
+    assert result.track_manifest.tracks[0].track_id == "obj_001__sfx__onset"
+    assert len(result.track_manifest.tracks[0].events) == 2
+
+
+def test_synthesize_tracks_records_deterministic_judgment_for_same_normalized_description():
+    judge = TrackJudge(flash_client=None)
+    result = synthesize_tracks(
+        [
+            make_action("a1", "char_001", "voice", "Strained grunt!!!", {"type": "onset", "timestamp": 0.1}),
+            make_action("a2", "char_001", "voice", "Strained grunt???", {"type": "onset", "timestamp": 0.3}),
+        ],
+        track_judge=judge,
+    )
+
+    assert len(result.track_manifest.tracks) == 1
+    judgments = judge.get_judgments()
+    assert len(judgments) == 1
+    assert judgments[0].source == "deterministic"
+    assert judgments[0].group_key == "char_001__voice__onset"
+
+
+def test_synthesize_tracks_uses_deterministic_groups_before_llm_grouping():
+    class FakeDecisionJudge(TrackJudge):
+        def __init__(self):
+            super().__init__(flash_client=None)
+            self.decision_calls: list[list[str]] = []
+
+        def judge_group_decision(self, actions, source_id, interaction_type, event_type, *, record):
+            self.decision_calls.append([action.action_id for action in actions])
+            rep_groups = [
+                TrackGroupResult(action_ids=[actions[0].action_id, actions[1].action_id], reason="same family"),
+            ]
+            return TrackJudgeDecision(
+                groups=[list(actions)],
+                group_results=rep_groups,
+                source="llm",
+                model=self.model,
+            )
+
+    judge = FakeDecisionJudge()
+    result = synthesize_tracks(
+        [
+            make_action("a1", "obj_001", "sfx", "Metal clash!!!", {"type": "onset", "timestamp": 0.1}),
+            make_action("a2", "obj_001", "sfx", "Metal clash???", {"type": "onset", "timestamp": 0.2}),
+            make_action("a3", "obj_001", "sfx", "Heavy wooden thud", {"type": "onset", "timestamp": 0.3}),
+        ],
+        track_judge=judge,
+    )
+
+    assert judge.decision_calls == [["a1", "a3"]]
+    assert len(result.track_manifest.tracks) == 1
+    assert len(result.track_manifest.tracks[0].events) == 3
+
+
+def test_synthesize_tracks_sorts_manifest_and_assigns_track_numbers():
+    result = synthesize_tracks(
+        [
+            make_action(
+                "amb",
+                "amb_001",
+                "ambience",
+                "steady room tone",
+                {"type": "continuous", "start_time": 0.0, "end_time": 2.0},
+            ),
+            make_action(
+                "voice",
+                "char_001",
+                "voice",
+                "short vocal grunt",
+                {"type": "onset", "timestamp": 0.5},
+            ),
+            make_action(
+                "sfx",
+                "obj_001",
+                "sfx",
+                "wooden knock",
+                {"type": "onset", "timestamp": 0.2},
+            ),
+        ]
+    )
+
+    assert [track.track_type for track in result.track_manifest.tracks] == ["sfx", "voice", "ambience"]
+    assert [track.track_number for track in result.track_manifest.tracks] == [1, 2, 3]
+    assert [track.track_id for track in result.track_manifest.tracks] == [
+        "obj_001__sfx__onset",
+        "char_001__voice__onset",
+        "amb_001__ambience",
+    ]

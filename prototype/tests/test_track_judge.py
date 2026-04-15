@@ -97,6 +97,7 @@ def test_track_judge_payload_includes_cut_id_and_returns_llm_groups():
     assert '"cut_id": "CUT_003"' in payload
     assert judge.get_judgments()[0].source == "llm"
     assert "Use cut_id to understand temporal context across the video." in client.models.calls[0]["config"].system_instruction
+    assert "interaction_type will be either sfx or voice." in client.models.calls[0]["config"].system_instruction
 
 
 def test_track_judge_falls_back_on_parse_error():

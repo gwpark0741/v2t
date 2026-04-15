@@ -140,7 +140,7 @@ def test_run_agent_c_synthesizes_tracks_and_records_track_group_judgments():
                             cut_id="CUT_001",
                             primary_source_id="char_001",
                             interaction_type="sfx",
-                            sound_description="soft sneaker step on tile",
+                            sound_description="light sneaker footstep on tile",
                             observed_visual_description="player keeps stepping",
                             event=OnsetEvent(type="onset", timestamp=0.4),
                             boundary_flag=False,

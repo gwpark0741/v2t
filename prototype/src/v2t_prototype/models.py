@@ -7,8 +7,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 
 EntityAudibility = Literal["audible", "likely_audible", "visual_only", "inactive"]
-InteractionType = Literal["sfx", "ambience"]
-TrackType = Literal["sfx", "ambience"]
+InteractionType = Literal["sfx", "voice", "ambience"]
+TrackType = Literal["sfx", "voice", "ambience"]
 DistanceProfile = Literal["near", "mid", "far"]
 WarningSeverity = Literal["error", "warning", "info"]
 StageName = Literal[
@@ -370,10 +370,10 @@ class AgentBResponse(BaseModel):
 
 
 class Track(BaseModel):
+    track_number: int = Field(ge=1)
     track_id: str
     track_type: TrackType
     source_entity_id: str
-    interaction_type: InteractionType
     sound_description: str
     events: List[Union[OnsetEvent, ContinuousEvent]]
 
@@ -431,7 +431,7 @@ class TrackGroupJudgment(BaseModel):
     input_action_ids: List[str]
     output_groups: List[TrackGroupResult]
     model: str | None
-    source: Literal["single_action", "llm", "llm_error"]
+    source: Literal["single_action", "deterministic", "llm", "llm_error"]
 
     model_config = ConfigDict(extra="forbid")
 

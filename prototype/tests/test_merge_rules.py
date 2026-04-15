@@ -32,6 +32,11 @@ class MergeRulesTest(unittest.TestCase):
         other = make_action("obj_001", "sfx")
         self.assertIsNone(canonical_should_merge(base, other))
 
+    def test_voice_never_merges_via_canonical_rule(self):
+        base = make_action("char_001", "voice")
+        other = make_action("char_001", "voice")
+        self.assertIsNone(canonical_should_merge(base, other))
+
     def test_mismatched_sources_do_not_merge(self):
         base = make_action("amb_001", "ambience")
         other = make_action("amb_002", "ambience")

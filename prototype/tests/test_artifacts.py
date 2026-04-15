@@ -221,10 +221,10 @@ def _sample_agent_c_result(
             track_manifest=TrackManifest(
                 tracks=[
                     Track(
+                        track_number=1,
                         track_id="char_001__sfx__continuous",
                         track_type="sfx",
                         source_entity_id="char_001",
-                        interaction_type="sfx",
                         sound_description="steel footstep",
                         events=[ContinuousEvent(type="continuous", start_time=0.5, end_time=1.5)],
                     )

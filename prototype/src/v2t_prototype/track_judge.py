@@ -18,6 +18,9 @@ TRACK_JUDGE_SYSTEM_PROMPT = """You are a sound track grouping judge for a video 
 Given a list of sound actions that share the same source, interaction type,
 and event type, decide which actions belong to the same audio track.
 
+interaction_type will be either sfx or voice.
+voice is a valid foreground class for human vocal sounds.
+
 A track represents sounds that can be covered by a single audio asset.
 Group actions that describe acoustically equivalent events.
 Actions with clearly different acoustic character must be in separate groups.
@@ -43,6 +46,14 @@ Rules:
 class _LLMGroupResult:
     groups: list[TrackGroupResult]
     source: Literal["llm", "llm_error"]
+
+
+@dataclass(frozen=True)
+class TrackJudgeDecision:
+    groups: list[list[Action]]
+    group_results: list[TrackGroupResult]
+    source: Literal["single_action", "llm", "llm_error"]
+    model: str | None
 
 
 def _build_payload(
@@ -135,15 +146,58 @@ class TrackJudge:
         interaction_type: str,
         event_type: str,
     ) -> list[list[Action]]:
+        decision = self.judge_group_decision(
+            actions,
+            source_id,
+            interaction_type,
+            event_type,
+            record=True,
+        )
+        return decision.groups
+
+    def judge_group_decision(
+        self,
+        actions: list[Action],
+        source_id: str,
+        interaction_type: str,
+        event_type: str,
+        *,
+        record: bool,
+    ) -> TrackJudgeDecision:
         group_key = f"{source_id}__{interaction_type}__{event_type}"
         if len(actions) == 1:
-            groups = [TrackGroupResult(action_ids=[actions[0].action_id], reason="single action")]
-            self._record(group_key, actions, groups, source="single_action", model=None)
-            return [list(actions)]
+            group_results = [TrackGroupResult(action_ids=[actions[0].action_id], reason="single action")]
+            if record:
+                self.record_judgment(
+                    group_key,
+                    actions,
+                    group_results,
+                    source="single_action",
+                    model=None,
+                )
+            return TrackJudgeDecision(
+                groups=[list(actions)],
+                group_results=group_results,
+                source="single_action",
+                model=None,
+            )
 
         result = self._call_llm(actions, source_id, interaction_type, event_type)
-        self._record(group_key, actions, result.groups, source=result.source, model=self.model)
-        return self._resolve_groups(actions, result.groups)
+        resolved_groups = self._resolve_groups(actions, result.groups)
+        if record:
+            self.record_judgment(
+                group_key,
+                actions,
+                result.groups,
+                source=result.source,
+                model=self.model,
+            )
+        return TrackJudgeDecision(
+            groups=resolved_groups,
+            group_results=result.groups,
+            source=result.source,
+            model=self.model,
+        )
 
     def _call_llm(
         self,
@@ -271,13 +325,13 @@ class TrackJudge:
             for group in groups
         ]
 
-    def _record(
+    def record_judgment(
         self,
         group_key: str,
         actions: list[Action],
         groups: list[TrackGroupResult],
         *,
-        source: Literal["single_action", "llm", "llm_error"],
+        source: Literal["single_action", "deterministic", "llm", "llm_error"],
         model: str | None,
     ) -> None:
         self._judgments.append(
