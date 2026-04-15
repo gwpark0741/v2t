@@ -73,7 +73,6 @@ def build_agent_b_report_html(
                 f"<td>{escape(action.primary_source_id)}</td>"
                 f"<td>{escape(action.interaction_type)}</td>"
                 f"<td>{escape(action.sound_description)}</td>"
-                f"<td>{escape(action.surface_context or '-')}</td>"
                 f"<td>{escape(action.observed_visual_description)}</td>"
                 f"<td>{escape(_format_event(action.event))}</td>"
                 f"<td>{'true' if action.boundary_flag else 'false'}</td>"
@@ -84,7 +83,7 @@ def build_agent_b_report_html(
         )
         if not action_rows:
             action_rows = (
-                "<tr><td colspan='9' class='muted'>No actions returned for this cut.</td></tr>"
+                "<tr><td colspan='8' class='muted'>No actions returned for this cut.</td></tr>"
             )
 
         issue_sections.append(
@@ -109,7 +108,7 @@ def build_agent_b_report_html(
         <thead>
           <tr>
             <th>Action ID</th><th>Primary Source</th><th>Interaction</th><th>Sound</th>
-            <th>Surface</th><th>Observed Visual</th><th>Event (absolute)</th><th>Boundary</th><th>Unknown Resolution</th>
+            <th>Observed Visual</th><th>Event (absolute)</th><th>Boundary</th><th>Unknown Resolution</th>
           </tr>
         </thead>
         <tbody>{action_rows}</tbody>

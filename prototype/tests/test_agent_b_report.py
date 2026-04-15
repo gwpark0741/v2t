@@ -13,13 +13,13 @@ from v2t_prototype.models import (
     AmbienceSource,
     Character,
     ContinuousEvent,
+    Cut,
     EntityRegistry,
     Interval,
     KeyObject,
     UnknownResolution,
     VideoMetadata,
     WarningItem,
-    Cut,
 )
 
 
@@ -96,9 +96,8 @@ def _result() -> AgentBAllCutsResult:
                                 suggestion="UNRESOLVED",
                                 reason="unclear source",
                             ),
-                            "interaction_type": "hard_effect",
-                            "sound_description": "metal clash",
-                            "surface_context": "steel",
+                            "interaction_type": "sfx",
+                            "sound_description": "metal clash with a bright ring",
                             "observed_visual_description": "swords collide",
                             "event": ContinuousEvent(
                                 type="continuous",
@@ -134,7 +133,7 @@ def test_build_agent_b_report_html_contains_key_fields():
 
     assert "Agent B Report" in html
     assert "CUT_001" in html
-    assert "metal clash" in html
+    assert "metal clash with a bright ring" in html
     assert "UNKNOWN_OBJECT_CUT001_1" in html
     assert "CUT_003" in html
     assert "CUT_004" in html
@@ -144,6 +143,7 @@ def test_build_agent_b_report_html_contains_key_fields():
     assert "continuous 0.500s - 1.500s" in html
     assert "Raw response timestamps below are clip-local." in html
     assert "Event (absolute)" in html
+    assert "surface_context" not in html
 
 
 def test_write_agent_b_report_writes_html_file(tmp_path: Path):

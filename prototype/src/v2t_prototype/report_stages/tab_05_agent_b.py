@@ -80,17 +80,15 @@ def render_tab(run_dir: Path, report_html_path: Path) -> str | None:
                 continue
             event = action.get("event", {})
             unresolved_badge = render_badge("warning", kind="severity") if _is_unresolved(action) else ""
-            surface_context = action.get("surface_context")
             action_cards.append(
                 "<div class='action-card stack'>"
                 "<div class='action-meta'>"
                 f"<span class='mono truncate'>{safe_text(action.get('action_id'))}</span>"
-                f"{render_badge(str(action.get('interaction_type', 'background')))}"
+                f"{render_badge(str(action.get('interaction_type', 'ambience')))}"
                 f"{unresolved_badge}"
                 "</div>"
                 f"<div><span class='muted'>source</span> <span class='mono truncate'>{safe_text(action.get('primary_source_id'))}</span></div>"
                 f"<div class='clamp-2 break-word'>{safe_text(action.get('sound_description'))}</div>"
-                f"<div class='break-word'><span class='muted'>surface</span> <span class='mono'>{safe_text(surface_context)}</span></div>"
                 f"<div class='mono'>{safe_text(_format_event(event if isinstance(event, dict) else {}))}</div>"
                 "</div>"
             )
