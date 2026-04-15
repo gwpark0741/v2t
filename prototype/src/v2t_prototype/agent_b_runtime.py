@@ -58,10 +58,12 @@ RULES
        suggestion: UNRESOLVED
 
 4. Classify interaction_type — choose exactly one:
-   sfx      — all individual sound events: physical contact, impact, friction,
-              footsteps, clothing, body movement, mechanisms, electronic devices
-   ambience — continuous spatial sound with no specific source:
-              environment, crowd, wind, room tone
+   sfx      — non-vocal foreground sound events: impact, friction, collision,
+              cloth movement, body movement, mechanisms, electronic devices
+   voice    — all human vocal sounds: speech, singing, kiai, grunts, groans,
+              moans, exertion vocals, pain vocals
+   ambience — continuous spatial sound with no specific singular foreground source:
+              room tone, wind, crowd bed, environmental background layers
 
 5. Fill these fields for every action:
 
@@ -69,6 +71,11 @@ RULES
      - Describe the sound clearly in one sentence.
      - For sfx, include material/contact cues naturally if relevant.
      - Prefer descriptions that make the acoustic identity stable across cuts.
+     - If repeated sounds are acoustically equivalent, keep the wording identical
+       across timestamps and cuts.
+     - Do not rewrite the description just because the timing changed.
+     - If the sound is sustained, prefer a single continuous event instead of
+       multiple onset events.
 
    Preferred style examples:
      Ambience:
@@ -110,6 +117,9 @@ _EVENT_TYPE_NORMALIZATION = {
     "continuous": "continuous",
     "continuousevent": "continuous",
 }
+
+_RETRYABLE_AGENT_B_ERROR_CODES = {429, 500, 502, 503, 504}
+_AGENT_B_RETRY_BACKOFF_SECONDS = (2.0, 5.0, 10.0)
 
 
 def _build_agent_b_prompt(input: AgentBCutInput) -> str:
@@ -164,6 +174,41 @@ def _normalize_agent_b_response_payload(raw_response_text: str) -> Any:
     normalized_payload = dict(payload)
     normalized_payload["actions"] = normalized_actions
     return normalized_payload
+
+
+def _extract_error_status_code(exc: Exception) -> int | None:
+    for attr_name in ("status_code", "code"):
+        value = getattr(exc, attr_name, None)
+        if isinstance(value, int):
+            return value
+        if callable(value):
+            try:
+                computed = value()
+            except TypeError:
+                continue
+            if isinstance(computed, int):
+                return computed
+
+    response = getattr(exc, "response", None)
+    response_status = getattr(response, "status_code", None)
+    if isinstance(response_status, int):
+        return response_status
+
+    message = str(exc)
+    match = re.search(r"\b(429|500|502|503|504)\b", message)
+    if match:
+        return int(match.group(1))
+    return None
+
+
+def _is_retryable_generation_error(exc: Exception) -> bool:
+    status_code = _extract_error_status_code(exc)
+    return status_code in _RETRYABLE_AGENT_B_ERROR_CODES
+
+
+def _retry_backoff_seconds(retries_used: int) -> float:
+    index = min(retries_used, len(_AGENT_B_RETRY_BACKOFF_SECONDS) - 1)
+    return _AGENT_B_RETRY_BACKOFF_SECONDS[index]
 
 
 def _normalize_action_event_to_absolute(action: Action, *, cut_start_time: float) -> Action:
@@ -233,11 +278,19 @@ def run_agent_b_for_cut(
     estimated_total_cost_usd = 0.0
     while True:
         started_at = time.monotonic()
-        gemini_response = runtime_client.models.generate_content(
-            model=model,
-            contents=[clip_part, prompt],
-            config=_build_generation_config(),
-        )
+        try:
+            gemini_response = runtime_client.models.generate_content(
+                model=model,
+                contents=[clip_part, prompt],
+                config=_build_generation_config(),
+            )
+        except Exception as exc:
+            total_latency_ms += (time.monotonic() - started_at) * 1000.0
+            if _is_retryable_generation_error(exc) and retries_used < max_retries:
+                time.sleep(_retry_backoff_seconds(retries_used))
+                retries_used += 1
+                continue
+            raise
         latency_ms = (time.monotonic() - started_at) * 1000.0
         usage = extract_token_usage(gemini_response)
         aggregate_usage = add_token_usage(aggregate_usage, usage)
@@ -364,22 +417,41 @@ async def run_agent_b_all_cuts_parallel(
         return_exceptions=True,
     )
 
-    cut_outputs: list[AgentBCutOutput] = []
-    failed_cut_ids: list[str] = []
+    cut_outputs_by_id: dict[str, AgentBCutOutput] = {}
+    failed_clips: list[tuple[Any, Exception]] = []
     warnings: list[WarningItem] = []
     for clip, result in zip(segment_prep.clips, gathered):
         if isinstance(result, Exception):
-            failed_cut_ids.append(clip.cut_id)
+            failed_clips.append((clip, result))
+            continue
+        cut_outputs_by_id[clip.cut_id] = result
+
+    final_failed_cut_ids: list[str] = []
+    for clip, initial_error in failed_clips:
+        try:
+            recovered_output = await _run_for_clip(clip)
+        except Exception as recovery_error:
+            final_failed_cut_ids.append(clip.cut_id)
             warnings.append(
                 WarningItem(
                     code="AGENT_B_CUT_RUNTIME_FAILURE",
                     severity="warning",
                     message="Agent B runtime failed for one cut.",
-                    context={"cut_id": clip.cut_id, "error": str(result)},
+                    context={
+                        "cut_id": clip.cut_id,
+                        "error": str(recovery_error),
+                        "initial_error": str(initial_error),
+                    },
                 )
             )
             continue
-        cut_outputs.append(result)
+        cut_outputs_by_id[clip.cut_id] = recovered_output
+
+    cut_outputs = [
+        cut_outputs_by_id[clip.cut_id]
+        for clip in segment_prep.clips
+        if clip.cut_id in cut_outputs_by_id
+    ]
 
     total_actions = sum(len(output.actions) for output in cut_outputs)
     aggregate_usage = TokenUsage()
@@ -408,7 +480,7 @@ async def run_agent_b_all_cuts_parallel(
     return AgentBAllCutsResult(
         cut_outputs=cut_outputs,
         skipped_cut_ids=skipped_cut_ids,
-        failed_cut_ids=failed_cut_ids,
+        failed_cut_ids=final_failed_cut_ids,
         total_actions=total_actions,
         unresolved_count=unresolved_count,
         reassigned_count=reassigned_count,

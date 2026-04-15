@@ -291,11 +291,15 @@ def test_run_agent_b_for_cut_accepts_boundary_event_when_cut_duration_rounds_dow
 
 
 def test_agent_b_system_prompt_includes_new_interaction_types_and_examples():
-    assert "sfx      — all individual sound events" in DEFAULT_AGENT_B_SYSTEM_PROMPT
-    assert "ambience — continuous spatial sound with no specific source" in DEFAULT_AGENT_B_SYSTEM_PROMPT
+    assert "sfx      — non-vocal foreground sound events" in DEFAULT_AGENT_B_SYSTEM_PROMPT
+    assert "voice    — all human vocal sounds" in DEFAULT_AGENT_B_SYSTEM_PROMPT
+    assert "ambience — continuous spatial sound with no specific singular foreground source" in DEFAULT_AGENT_B_SYSTEM_PROMPT
     assert "surface_context" not in DEFAULT_AGENT_B_SYSTEM_PROMPT
     assert "Light, steady rain falling on wet city pavement and surfaces." in DEFAULT_AGENT_B_SYSTEM_PROMPT
     assert "Forceful burst of powdery snow, a quick whoosh, and muffled landing." in DEFAULT_AGENT_B_SYSTEM_PROMPT
+    assert "acoustically equivalent" in DEFAULT_AGENT_B_SYSTEM_PROMPT
+    assert "timestamps and cuts." in DEFAULT_AGENT_B_SYSTEM_PROMPT
+    assert "Do not rewrite the description just because the timing changed." in DEFAULT_AGENT_B_SYSTEM_PROMPT
     assert "All event timestamps must be relative to THIS clip." in DEFAULT_AGENT_B_SYSTEM_PROMPT
     assert "The clip always starts at 0.0 seconds." in DEFAULT_AGENT_B_SYSTEM_PROMPT
     assert "Do NOT use full-video absolute timestamps." in DEFAULT_AGENT_B_SYSTEM_PROMPT
@@ -315,6 +319,41 @@ def test_run_agent_b_for_cut_retries_after_parse_error():
     assert output.validation_issues == []
     assert len(output.actions) == 1
     assert client.models.generate_content.call_count == 2
+
+
+def test_run_agent_b_for_cut_retries_after_retryable_generation_error():
+    input_model = _make_runtime_input()
+    client = Mock()
+    client.models.generate_content.side_effect = [
+        RuntimeError("503 UNAVAILABLE"),
+        SimpleNamespace(
+            text=json.dumps({"actions": [_valid_action_dict(boundary_flag=False)]}),
+            usage_metadata=_usage_metadata(),
+        ),
+    ]
+
+    with (
+        patch("v2t_prototype.agent_b_runtime.types.Part.from_uri") as part_from_uri,
+        patch("v2t_prototype.agent_b_runtime.time.sleep") as sleep_mock,
+    ):
+        part_from_uri.return_value = SimpleNamespace(content="clip")
+        output = run_agent_b_for_cut(input_model, client=client, max_retries=1)
+
+    assert output.validation_issues == []
+    assert len(output.actions) == 1
+    assert client.models.generate_content.call_count == 2
+    sleep_mock.assert_called_once()
+
+
+def test_run_agent_b_for_cut_raises_non_retryable_generation_error():
+    input_model = _make_runtime_input()
+    client = Mock()
+    client.models.generate_content.side_effect = RuntimeError("400 INVALID_ARGUMENT")
+
+    with patch("v2t_prototype.agent_b_runtime.types.Part.from_uri") as part_from_uri:
+        part_from_uri.return_value = SimpleNamespace(content="clip")
+        with pytest.raises(RuntimeError, match="400 INVALID_ARGUMENT"):
+            run_agent_b_for_cut(input_model, client=client, max_retries=2)
 
 
 def test_run_agent_b_for_cut_normalizes_onset_event_type_variant():
@@ -535,3 +574,50 @@ def test_run_agent_b_all_cuts_parallel_aggregates_outputs_and_failures():
     assert result.unresolved_count == 1
     assert result.reassigned_count == 0
     assert [warning.code for warning in result.warnings] == ["AGENT_B_CUT_RUNTIME_FAILURE"]
+
+
+def test_run_agent_b_all_cuts_parallel_recovers_failed_cut_sequentially():
+    segment_prep = SegmentPrepResult(
+        clips=[_clip("CUT_001"), _clip("CUT_002")],
+        skipped_cuts=[],
+        warnings=[],
+    )
+    agent_a_output = _agent_a_output()
+
+    outputs = {
+        "CUT_001": AgentBCutOutput(
+            cut_id="CUT_001",
+            raw_response_text="{}",
+            actions=[],
+            validation_issues=[],
+            model=DEFAULT_AGENT_B_MODEL,
+        ),
+        "CUT_002": AgentBCutOutput(
+            cut_id="CUT_002",
+            raw_response_text="{}",
+            actions=[],
+            validation_issues=[],
+            model=DEFAULT_AGENT_B_MODEL,
+        ),
+    }
+    call_counts = {"CUT_001": 0, "CUT_002": 0}
+
+    def fake_run_agent_b_for_cut(input_model, **kwargs):
+        call_counts[input_model.cut_id] += 1
+        if input_model.cut_id == "CUT_002" and call_counts["CUT_002"] == 1:
+            raise RuntimeError("503 UNAVAILABLE")
+        return outputs[input_model.cut_id]
+
+    with patch("v2t_prototype.agent_b_runtime.run_agent_b_for_cut", side_effect=fake_run_agent_b_for_cut):
+        result = asyncio.run(
+            run_agent_b_all_cuts_parallel(
+                segment_prep,
+                agent_a_output,
+                client=Mock(),
+            )
+        )
+
+    assert [output.cut_id for output in result.cut_outputs] == ["CUT_001", "CUT_002"]
+    assert result.failed_cut_ids == []
+    assert result.warnings == []
+    assert call_counts == {"CUT_001": 1, "CUT_002": 2}

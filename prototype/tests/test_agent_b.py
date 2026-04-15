@@ -115,6 +115,25 @@ def test_validate_agent_b_response_accepts_valid_response():
     assert issues == []
 
 
+def test_validate_agent_b_response_accepts_voice_interaction_type():
+    issues = validate_agent_b_response(
+        _response(
+            _valid_action(
+                primary_source_id="char_001",
+                interaction_type="voice",
+                sound_description="strained vocal grunt of effort",
+                observed_visual_description="fighter shouts while swinging",
+            )
+        ),
+        "CUT_001",
+        _entity_registry(),
+        cut_start_time=0.0,
+        cut_end_time=4.0,
+    )
+
+    assert issues == []
+
+
 def test_validate_agent_b_response_reports_duplicate_action_id():
     issues = validate_agent_b_response(
         _response(
