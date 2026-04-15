@@ -125,6 +125,37 @@ body {
 .tab-panel.active {
   display: block;
 }
+.subtabs {
+  display: flex;
+  gap: var(--space-sm);
+  border-bottom: 1px solid var(--border);
+  margin: 0 0 var(--space-md);
+  overflow-x: auto;
+  padding-bottom: 1px;
+}
+.subtab-button {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  color: var(--tab-inactive-text);
+  font: inherit;
+  padding: var(--space-sm) var(--space-sm) 10px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.subtab-button.active {
+  color: var(--tab-active-text);
+  border-bottom-color: var(--tab-active-border);
+}
+.subtab-panel {
+  display: none;
+  min-width: 0;
+}
+.subtab-panel.active {
+  display: block;
+}
 .card {
   background: var(--bg-surface);
   border: 1px solid var(--border);
@@ -189,6 +220,7 @@ body {
   flex-shrink: 0;
 }
 .badge-sfx          { background: #fde8dc; color: var(--accent-orange); }
+.badge-voice        { background: #ede0f5; color: var(--accent-purple); }
 .badge-ambience     { background: #d8e8f8; color: var(--accent-blue); }
 .badge-hard_effect  { background: #fde8dc; color: var(--accent-orange); }
 .badge-foley        { background: #d9f0e3; color: var(--accent-green); }
@@ -214,6 +246,24 @@ video {
 .video-frame {
   max-width: 720px;
   margin: 0 auto var(--space-lg);
+}
+.tracks-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
+  gap: var(--space-lg);
+  align-items: start;
+}
+.tracks-sidebar {
+  min-width: 0;
+}
+.tracks-scroll-panel {
+  min-width: 0;
+  max-height: calc(100vh - 220px);
+  overflow: auto;
+  padding-right: 6px;
+}
+.tracks-scroll-panel > * + * {
+  margin-top: var(--space-md);
 }
 .video-placeholder {
   display: grid;
@@ -478,6 +528,7 @@ td {
   opacity: 0.35;
 }
 .interaction-color-sfx { color: var(--accent-orange); background: rgba(224, 90, 30, 0.18); }
+.interaction-color-voice { color: var(--accent-purple); background: rgba(107, 63, 160, 0.18); }
 .interaction-color-ambience { color: var(--accent-blue); background: rgba(26, 95, 180, 0.18); }
 .interaction-color-hard_effect { color: var(--accent-orange); background: rgba(224, 90, 30, 0.18); }
 .interaction-color-foley { color: var(--accent-green); background: rgba(26, 122, 62, 0.18); }
@@ -501,6 +552,14 @@ pre {
   .grid-2-agent-b {
     grid-template-columns: minmax(0, 1fr);
   }
+  .tracks-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .tracks-scroll-panel {
+    max-height: none;
+    overflow: visible;
+    padding-right: 0;
+  }
   .page { padding: var(--space-md); }
 }
 """
@@ -523,6 +582,27 @@ function initTabs() {
     button.addEventListener('click', () => activate(button.dataset.tabTarget));
   });
   activate(buttons[0].dataset.tabTarget);
+}
+
+function initSubtabs() {
+  const groups = document.querySelectorAll('[data-subtab-group]');
+  groups.forEach((group) => {
+    const buttons = Array.from(group.querySelectorAll('[data-subtab-target]'));
+    const panels = Array.from(group.querySelectorAll('[data-subtab-panel]'));
+    if (!buttons.length || !panels.length) return;
+    const activate = (target) => {
+      buttons.forEach((button) => {
+        button.classList.toggle('active', button.dataset.subtabTarget === target);
+      });
+      panels.forEach((panel) => {
+        panel.classList.toggle('active', panel.dataset.subtabPanel === target);
+      });
+    };
+    buttons.forEach((button) => {
+      button.addEventListener('click', () => activate(button.dataset.subtabTarget));
+    });
+    activate(buttons[0].dataset.subtabTarget);
+  });
 }
 
 function initAccordions() {
@@ -557,6 +637,7 @@ function initTimelineSync() {
 
 document.addEventListener('DOMContentLoaded', () => {
   initTabs();
+  initSubtabs();
   initAccordions();
   initTimelineSync();
 });

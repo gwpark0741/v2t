@@ -16,6 +16,15 @@ from .common import (
     stage_output,
 )
 
+_SOURCE_COLORS = [
+    "#e05a1e",
+    "#1a5fb4",
+    "#6b3fa0",
+    "#1a7a3e",
+    "#b45309",
+    "#c0392b",
+]
+
 
 def _to_percent(value: float, duration: float) -> float:
     if not duration or duration <= 0:
@@ -68,16 +77,98 @@ def _render_lane_rules(duration: float) -> str:
     )
 
 
-def _event_color_class(interaction_type: str) -> str:
-    return f"interaction-color-{interaction_type}"
+def _event_color_class(track_type: str) -> str:
+    return f"interaction-color-{track_type}"
 
 
-def _interaction_sort_key(interaction_type: str) -> tuple[int, str]:
-    order = {
-        "sfx": 0,
-        "ambience": 1,
-    }
-    return (order.get(interaction_type, 99), interaction_type)
+def _format_event_label(event: dict) -> str:
+    event_type = event.get("type")
+    if event_type == "onset":
+        return "onset"
+    if event_type == "continuous":
+        return "continuous"
+    return safe_text(event_type)
+
+
+def _render_event_labels(events: list[dict]) -> str:
+    labels: list[str] = []
+    seen: set[str] = set()
+    for event in events:
+        if not isinstance(event, dict):
+            continue
+        label = _format_event_label(event)
+        if label in seen:
+            continue
+        seen.add(label)
+        labels.append(label)
+    items = [
+        f"<div class='mono muted' style='margin-top:4px'>{safe_text(label)}</div>"
+        for label in labels
+    ]
+    return "".join(items)
+
+
+def _build_track_rows(
+    tracks: list[dict],
+    duration: float,
+    lane_rules: str,
+    *,
+    show_source: bool = False,
+    source_color_by_id: dict[str, str] | None = None,
+) -> str:
+    timeline_rows: list[str] = []
+    for track in tracks:
+        track_type = str(track.get("track_type", "ambience"))
+        track_number = int(track.get("track_number", 0) or 0)
+        source_id = str(track.get("source_entity_id", "unknown_source"))
+        events = track.get("events", [])
+        event_html = []
+        for event in events:
+            if not isinstance(event, dict) or not _is_valid_event(event, duration):
+                continue
+            if event.get("type") == "onset":
+                left = _to_percent(float(event.get("timestamp", 0.0)), duration)
+                event_html.append(
+                    f"<div class='timeline-event-onset {_event_color_class(track_type)}' "
+                    f"style='left:{left:.4f}%' "
+                    f"title=\"{safe_text(track.get('sound_description'))}\"></div>"
+                )
+            else:
+                start_time = float(event.get("start_time", 0.0))
+                end_time = float(event.get("end_time", 0.0))
+                width = max(0.0, _to_percent(end_time, duration) - _to_percent(start_time, duration))
+                if width <= 0:
+                    continue
+                event_html.append(
+                    f"<div class='timeline-event-continuous {_event_color_class(track_type)}' "
+                    f"style='left:{_to_percent(start_time, duration):.4f}%; width:max({width:.4f}%, 3px)' "
+                    f"title=\"{safe_text(track.get('sound_description'))}\"></div>"
+                )
+        source_meta = ""
+        if show_source:
+            accent = "#cccccc"
+            if source_color_by_id is not None:
+                accent = source_color_by_id.get(source_id, accent)
+            source_meta = (
+                "<div style='margin-top:6px'>"
+                f"<span class='mono' style='display:inline-block; padding-left:8px; border-left:4px solid {accent}'>{safe_text(source_id)}</span>"
+                "</div>"
+            )
+        timeline_rows.append(
+            "<div class='timeline-row'>"
+            "<div class='timeline-label'>"
+            f"{source_meta}"
+            f"<div class='mono break-word'>Track {track_number:02d}</div>"
+            f"<div class='break-word' style='margin-top:6px; color: var(--text-secondary)'>{safe_text(track.get('sound_description'))}</div>"
+            f"{_render_event_labels(events if isinstance(events, list) else [])}"
+            f"<div style='margin-top:4px'>{render_badge(track_type)}</div>"
+            "</div>"
+            f"<div class='timeline-lane'><div class='timeline-lane-inner'>{lane_rules}{''.join(event_html)}</div></div>"
+            "</div>"
+        )
+    if not timeline_rows:
+        return '<div class="empty-state">No tracks available</div>'
+    return "".join(timeline_rows)
 
 
 def render_tab(run_dir: Path, report_html_path: Path) -> str | None:
@@ -108,120 +199,93 @@ def render_tab(run_dir: Path, report_html_path: Path) -> str | None:
             render_summary_card("Tracks", len(tracks)),
             render_summary_card("Unresolved", len(pipeline_result.get("unresolved_unknowns", []))),
             render_summary_card("Warnings", len(pipeline_result.get("warnings", []))),
-            render_summary_card("LLM Calls", payload.get("llm_call_count", payload.get("flash_call_count", 0))),
+            render_summary_card("LLM Calls", payload.get("llm_call_count", 0)),
             render_summary_card(
                 "LLM Tokens",
-                payload.get("llm_usage", payload.get("flash_usage", {})).get("total_token_count", 0),
+                payload.get("llm_usage", {}).get("total_token_count", 0),
             ),
             render_summary_card(
                 "LLM Cost (USD)",
-                f"{float(payload.get('estimated_llm_cost_usd', payload.get('estimated_flash_cost_usd', 0.0))):.6f}",
+                f"{float(payload.get('estimated_llm_cost_usd', 0.0)):.6f}",
             ),
             render_summary_card(
                 "LLM Latency (ms)",
-                f"{float(payload.get('total_llm_latency_ms', payload.get('total_flash_latency_ms', 0.0))):.2f}",
+                f"{float(payload.get('total_llm_latency_ms', 0.0)):.2f}",
             ),
         ]
     )
 
     video_id = "pipeline-report-source-video"
-    timeline_rows = []
     lane_rules = _render_lane_rules(duration)
-    sorted_tracks = sorted(
-        (track for track in tracks if isinstance(track, dict)),
-        key=lambda track: (
-            _interaction_sort_key(str(track.get("interaction_type", "ambience"))),
-            str(track.get("track_id", "")),
-        ),
-    )
-    for track in sorted_tracks:
-        interaction_type = str(track.get("interaction_type", "ambience"))
-        events = track.get("events", [])
-        event_html = []
-        for event in events:
-            if not isinstance(event, dict) or not _is_valid_event(event, duration):
-                continue
-            if event.get("type") == "onset":
-                left = _to_percent(float(event.get("timestamp", 0.0)), duration)
-                event_html.append(
-                    f"<div class='timeline-event-onset {_event_color_class(interaction_type)}' "
-                    f"style='left:{left:.4f}%' "
-                    f"title=\"{safe_text(track.get('sound_description'))}\"></div>"
-                )
-            else:
-                start_time = float(event.get("start_time", 0.0))
-                end_time = float(event.get("end_time", 0.0))
-                width = max(0.0, _to_percent(end_time, duration) - _to_percent(start_time, duration))
-                if width <= 0:
-                    continue
-                event_html.append(
-                    f"<div class='timeline-event-continuous {_event_color_class(interaction_type)}' "
-                    f"style='left:{_to_percent(start_time, duration):.4f}%; width:max({width:.4f}%, 3px)' "
-                    f"title=\"{safe_text(track.get('sound_description'))}\"></div>"
-                )
-        timeline_rows.append(
-            "<div class='timeline-row'>"
-            "<div class='timeline-label'>"
-            f"<div class='mono break-word'>{safe_text(track.get('track_id'))}</div>"
-            f"<div class='break-word' style='margin-top:6px; color: var(--text-secondary)'>{safe_text(track.get('sound_description'))}</div>"
-            f"<div style='margin-top:4px'>{render_badge(interaction_type)}</div>"
+    source_groups: dict[str, list[dict]] = {}
+    for track in tracks:
+        if not isinstance(track, dict):
+            continue
+        source_groups.setdefault(str(track.get("source_entity_id", "unknown_source")), []).append(track)
+    source_ids = list(source_groups.keys())
+    source_color_by_id = {
+        source_id: _SOURCE_COLORS[index % len(_SOURCE_COLORS)]
+        for index, source_id in enumerate(source_ids)
+    }
+    all_tracks = [track for track in tracks if isinstance(track, dict)]
+
+    source_sections: list[str] = []
+    for index, source_id in enumerate(source_ids, start=1):
+        source_color = source_color_by_id[source_id]
+        source_tracks = source_groups[source_id]
+        accordion_id = f"stage06-source-{index}"
+        source_sections.append(
+            "<div class='accordion-item' style='margin-top:16px'>"
+            f"<button class='accordion-trigger' type='button' data-accordion-target='{accordion_id}' "
+            f"style='border-left: 6px solid {source_color}; background: linear-gradient(to right, {source_color}14, var(--bg-surface) 18%)'>"
+            "<div class='accordion-meta'>"
+            f"<span class='mono truncate'>{safe_text(source_id)}</span>"
+            f"<span class='badge badge-info'>{len(source_tracks)} tracks</span>"
             "</div>"
-            f"<div class='timeline-lane'><div class='timeline-lane-inner'>{lane_rules}{''.join(event_html)}</div></div>"
+            f"<span class='muted'>source group</span>"
+            "</button>"
+            f"<div class='accordion-content open' id='{accordion_id}'>"
+            f"<div class='timeline-wrap' data-video-id='{video_id}' style='margin-top:12px; border-left: 6px solid {source_color}'>"
+            "<div class='timeline-overlay'><div class='timeline-cursor'></div></div>"
+            "<div class='timeline-ruler-row'>"
+            "<div class='timeline-ruler-label'></div>"
+            f"<div class='timeline-ruler-lane'><div class='timeline-ruler-inner'>{_render_rule_lines(duration)}</div></div>"
+            "</div>"
+            f"{_build_track_rows(source_tracks, duration, lane_rules)}"
+            "</div>"
+            "</div>"
             "</div>"
         )
 
-    timeline = (
-        f"<div class='timeline-wrap' data-video-id='{video_id}'>"
+    all_tracks_section = (
+        "<div class='timeline-wrap' data-video-id='pipeline-report-source-video'>"
         "<div class='timeline-overlay'><div class='timeline-cursor'></div></div>"
         "<div class='timeline-ruler-row'>"
         "<div class='timeline-ruler-label'></div>"
         f"<div class='timeline-ruler-lane'><div class='timeline-ruler-inner'>{_render_rule_lines(duration)}</div></div>"
         "</div>"
-        f"{''.join(timeline_rows) if timeline_rows else '<div class=\"empty-state\">No tracks available</div>'}"
+        f"{_build_track_rows(all_tracks, duration, lane_rules, show_source=True, source_color_by_id=source_color_by_id)}"
         "</div>"
     )
 
     warnings = render_warning_table(load_stage_warnings(run_dir, "stage_06_agent_c"))
-    judgments = payload.get("track_group_judgments")
+    judgments = payload.get("track_group_judgments", [])
     judgment_title = "Track Group Judgments"
-    new_format = True
-    if not isinstance(judgments, list):
-        judgments = payload.get("surface_judgments", [])
-        judgment_title = "Surface Judgments"
-        new_format = False
     judgment_section = ""
     if isinstance(judgments, list):
         if judgments:
-            if new_format:
-                rows = "".join(
-                    "<tr>"
-                    f"<td class='mono truncate'>{safe_text(item.get('group_key'))}</td>"
-                    f"<td class='mono truncate'>{safe_text(', '.join(item.get('input_action_ids', [])))}</td>"
-                    f"<td class='mono'>{safe_text(item.get('source'))}</td>"
-                    f"<td class='truncate'>{safe_text(item.get('model'))}</td>"
-                    f"<td><pre>{safe_text(json.dumps(item.get('output_groups', []), indent=2, ensure_ascii=False))}</pre></td>"
-                    "</tr>"
-                    for item in judgments
-                    if isinstance(item, dict)
-                )
-                heading = "<th>Group Key</th><th>Input Action IDs</th><th>Source</th><th>Model</th><th>Output Groups</th>"
-            else:
-                rows = "".join(
-                    "<tr>"
-                    f"<td class='mono truncate'>{safe_text(item.get('action_id_a'))}</td>"
-                    f"<td class='mono truncate'>{safe_text(item.get('action_id_b'))}</td>"
-                    f"<td>{render_badge(str(item.get('interaction_type', 'ambience')))}</td>"
-                    f"<td class='mono truncate'>{safe_text(item.get('surface_context_a'))}</td>"
-                    f"<td class='mono truncate'>{safe_text(item.get('surface_context_b'))}</td>"
-                    f"<td class='mono'>{safe_text(item.get('result'))}</td>"
-                    f"<td class='mono'>{safe_text(item.get('source'))}</td>"
-                    f"<td class='truncate'>{safe_text(item.get('model'))}</td>"
-                    f"<td><div class='clamp-2 break-word'>{safe_text(item.get('reason'))}</div></td>"
-                    "</tr>"
-                    for item in judgments
-                    if isinstance(item, dict)
-                )
-                heading = "<th>Action A</th><th>Action B</th><th>Interaction</th><th>Surface A</th><th>Surface B</th><th>Result</th><th>Source</th><th>Model</th><th>Reason</th>"
+            rows = "".join(
+                "<tr>"
+                f"<td class='mono truncate'>{safe_text(item.get('group_key'))}</td>"
+                f"<td class='mono truncate'>{safe_text(', '.join(item.get('input_action_ids', [])))}</td>"
+                f"<td class='mono'>{safe_text(item.get('source'))}</td>"
+                f"<td class='truncate'>{safe_text(item.get('model'))}</td>"
+                f"<td><pre>{safe_text(json.dumps(item.get('output_groups', []), indent=2, ensure_ascii=False))}</pre></td>"
+                "</tr>"
+                for item in judgments
+                if isinstance(item, dict)
+            )
+            heading = "<th>Group Key</th><th>Input Action IDs</th><th>Source</th><th>Model</th><th>Output Groups</th>"
             judgment_section = (
                 "<div class='card' style='margin-top:16px'>"
                 f"<div class='section-title'><h3>{safe_text(judgment_title)}</h3></div>"
@@ -237,8 +301,25 @@ def render_tab(run_dir: Path, report_html_path: Path) -> str | None:
             )
     return (
         f"<div class='summary-grid'>{summary}</div>"
-        f"<div class='video-frame'>{render_video_or_placeholder(video_src, controls=True, muted=True, element_id=video_id)}</div>"
-        f"{timeline}"
+        "<div class='tracks-layout'>"
+        "<div class='tracks-sidebar'>"
+        "<div class='card stack'>"
+        "<div class='section-title'><h2>Source Video</h2></div>"
+        f"{render_video_or_placeholder(video_src, controls=True, muted=True, element_id=video_id)}"
+        "</div>"
+        "</div>"
+        "<div class='tracks-scroll-panel'>"
+        "<div class='card' data-subtab-group='stage06-track-views'>"
+        "<div class='section-title'><h2>Track Views</h2></div>"
+        "<div class='subtabs'>"
+        "<button class='subtab-button' type='button' data-subtab-target='stage06-all-tracks'>All Tracks</button>"
+        "<button class='subtab-button' type='button' data-subtab-target='stage06-by-source'>By Source</button>"
+        "</div>"
+        f"<div class='subtab-panel' data-subtab-panel='stage06-all-tracks'>{all_tracks_section}</div>"
+        f"<div class='subtab-panel' data-subtab-panel='stage06-by-source'>{''.join(source_sections) if source_sections else '<div class=\"empty-state\">No tracks available</div>'}</div>"
+        "</div>"
         f"{judgment_section}"
         f"{warnings}"
+        "</div>"
+        "</div>"
     )

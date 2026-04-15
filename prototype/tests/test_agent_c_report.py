@@ -23,10 +23,10 @@ def _result() -> AgentCResult:
             track_manifest=TrackManifest(
                 tracks=[
                     Track(
+                        track_number=1,
                         track_id="char_001__sfx__onset",
                         track_type="sfx",
                         source_entity_id="char_001",
-                        interaction_type="sfx",
                         sound_description="tiled footsteps",
                         events=[
                             OnsetEvent(type="onset", timestamp=0.2),
@@ -72,6 +72,8 @@ def test_build_agent_c_report_html_contains_key_fields():
     assert "UNKNOWN_1" in html
     assert "AGENT_C_PIPELINE_VALIDATION_WARNING" in html
     assert "No track group judgments recorded." in html
+    assert "Track #" in html
+    assert ">1<" in html
     assert "Merge Group Count" in html
     assert "Total LLM Latency (ms)" in html
     assert "No LLM calls recorded." in html
@@ -127,3 +129,29 @@ def test_build_agent_c_report_html_renders_track_group_judgment_details():
     assert "same repeating footstep" in html
     assert "gemini-2.5-flash" in html
     assert "12.50" in html
+
+
+def test_build_agent_c_report_html_renders_deterministic_judgment_badge():
+    result = _result().model_copy(
+        update={
+            "track_group_judgments": [
+                TrackGroupJudgment(
+                    group_key="char_001__voice__onset",
+                    input_action_ids=["act_001", "act_002"],
+                    output_groups=[
+                        TrackGroupResult(
+                            action_ids=["act_001", "act_002"],
+                            reason="same normalized sound_description",
+                        )
+                    ],
+                    source="deterministic",
+                    model=None,
+                )
+            ]
+        }
+    )
+
+    html = build_agent_c_report_html(result)
+
+    assert "deterministic" in html
+    assert "char_001__voice__onset" in html

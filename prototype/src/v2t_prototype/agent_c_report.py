@@ -28,10 +28,10 @@ def build_agent_c_report_html(
     track_rows = "".join(
         (
             "<tr>"
+            f"<td>{track.track_number}</td>"
             f"<td>{escape(track.track_id)}</td>"
             f"<td>{escape(track.track_type)}</td>"
             f"<td>{escape(track.source_entity_id)}</td>"
-            f"<td>{escape(track.interaction_type)}</td>"
             f"<td>{escape(track.sound_description)}</td>"
             f"<td>{len(track.events)}</td>"
             "</tr>"
@@ -181,6 +181,10 @@ def build_agent_c_report_html(
       background: #dcfce7;
       color: #166534;
     }}
+    .badge-deterministic {{
+      background: #fef3c7;
+      color: #b45309;
+    }}
     .badge-llm_error {{
       background: #fee2e2;
       color: #b91c1c;
@@ -211,7 +215,7 @@ def build_agent_c_report_html(
       <table>
         <thead>
           <tr>
-            <th>Track ID</th><th>Track Type</th><th>Source Entity</th><th>Interaction</th>
+            <th>Track #</th><th>Track ID</th><th>Track Type</th><th>Source Entity</th>
             <th>Sound Description</th><th>Event Count</th>
           </tr>
         </thead>

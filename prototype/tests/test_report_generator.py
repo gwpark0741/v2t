@@ -181,10 +181,10 @@ def _build_run_dir(tmp_path: Path) -> Path:
                 "track_manifest": {
                     "tracks": [
                         {
+                            "track_number": 1,
                             "track_id": "obj_001__sfx__onset",
                             "track_type": "sfx",
                             "source_entity_id": "obj_001",
-                            "interaction_type": "sfx",
                             "sound_description": "Ping pong bounce on a wooden table",
                             "events": [{"type": "onset", "timestamp": 1.2}],
                         }
@@ -262,28 +262,36 @@ def test_generate_pipeline_report_sorts_tracks_and_shows_description(tmp_path: P
                 "track_manifest": {
                     "tracks": [
                         {
-                            "track_id": "amb_001__ambience",
-                            "track_type": "ambience",
-                            "source_entity_id": "amb_001",
-                            "interaction_type": "ambience",
-                            "sound_description": "Room tone.",
-                            "events": [{"type": "continuous", "start_time": 0.0, "end_time": 5.0}],
-                        },
-                        {
+                            "track_number": 1,
                             "track_id": "char_001__sfx__continuous",
                             "track_type": "sfx",
                             "source_entity_id": "char_001",
-                            "interaction_type": "sfx",
                             "sound_description": "Cloth rustle.",
                             "events": [{"type": "continuous", "start_time": 1.0, "end_time": 2.0}],
                         },
                         {
+                            "track_number": 2,
                             "track_id": "obj_001__sfx__onset",
                             "track_type": "sfx",
                             "source_entity_id": "obj_001",
-                            "interaction_type": "sfx",
                             "sound_description": "Ping pong bounce.",
                             "events": [{"type": "onset", "timestamp": 1.2}],
+                        },
+                        {
+                            "track_number": 3,
+                            "track_id": "char_001__voice__onset",
+                            "track_type": "voice",
+                            "source_entity_id": "char_001",
+                            "sound_description": "Short vocal grunt.",
+                            "events": [{"type": "onset", "timestamp": 2.5}],
+                        },
+                        {
+                            "track_number": 4,
+                            "track_id": "amb_001__ambience",
+                            "track_type": "ambience",
+                            "source_entity_id": "amb_001",
+                            "sound_description": "Room tone.",
+                            "events": [{"type": "continuous", "start_time": 0.0, "end_time": 5.0}],
                         },
                     ]
                 },
@@ -302,17 +310,37 @@ def test_generate_pipeline_report_sorts_tracks_and_shows_description(tmp_path: P
 
     html = generate_pipeline_report(run_dir).read_text(encoding="utf-8")
 
-    onset_index = html.index("obj_001__sfx__onset")
-    sfx_continuous_index = html.index("char_001__sfx__continuous")
-    ambience_index = html.index("amb_001__ambience")
-    assert sfx_continuous_index < ambience_index
-    assert onset_index < ambience_index
-    assert "Ping pong bounce." in html
-    assert "Cloth rustle." in html
+    char_source_index = html.index("<span class='mono truncate'>char_001</span><span class='badge badge-info'>2 tracks</span>")
+    obj_source_index = html.index("<span class='mono truncate'>obj_001</span><span class='badge badge-info'>1 tracks</span>")
+    amb_source_index = html.index("<span class='mono truncate'>amb_001</span><span class='badge badge-info'>1 tracks</span>")
+    assert char_source_index < obj_source_index < amb_source_index
+    cloth_index = html.index("Cloth rustle.")
+    bounce_index = html.index("Ping pong bounce.")
+    voice_index = html.index("Short vocal grunt.")
+    ambience_index = html.index("Room tone.")
+    assert cloth_index < bounce_index
+    assert bounce_index < voice_index
+    assert voice_index < ambience_index
+    assert "All Tracks" in html
+    assert "By Source" in html
+    assert "tracks-layout" in html
+    assert "tracks-scroll-panel" in html
+    assert "Source Video" in html
     assert ">sfx<" in html
+    assert ">voice<" in html
+    assert ">continuous<" in html
+    assert ">onset<" in html
+    assert "Track 01" in html
+    assert "Track 02" in html
+    assert "Track 03" in html
+    assert "Track 04" in html
+    assert "char_001__sfx__continuous" not in html
+    assert "char_001__voice__onset" not in html
+    assert "continuous @ 1.000s ~ 2.000s" not in html
+    assert "onset @ 2.500s" not in html
 
 
-def test_generate_pipeline_report_dual_reads_legacy_stage_06_output(tmp_path: Path):
+def test_generate_pipeline_report_uses_track_numbers_from_stage_06_output(tmp_path: Path):
     run_dir = _build_run_dir(tmp_path)
     _write_json(
         run_dir / "stage_06_agent_c" / "output.json",
@@ -321,12 +349,11 @@ def test_generate_pipeline_report_dual_reads_legacy_stage_06_output(tmp_path: Pa
                 "track_manifest": {
                     "tracks": [
                         {
-                            "track_id": "obj_001__hard_effect__plastic_on_wood",
-                            "track_type": "sfx",
-                            "source_entity_id": "obj_001",
-                            "interaction_type": "hard_effect",
+                            "track_number": 7,
+                            "track_id": "char_001__voice__onset",
+                            "track_type": "voice",
+                            "source_entity_id": "char_001",
                             "sound_description": "Legacy bounce",
-                            "surface_context_summary": "plastic on wood",
                             "events": [{"type": "onset", "timestamp": 1.2}],
                         }
                     ]
@@ -334,29 +361,28 @@ def test_generate_pipeline_report_dual_reads_legacy_stage_06_output(tmp_path: Pa
                 "unresolved_unknowns": [],
                 "warnings": [],
             },
-            "surface_judgments": [
+            "track_group_judgments": [
                 {
-                    "action_id_a": "act_CUT_001_001",
-                    "action_id_b": "act_CUT_001_002",
-                    "interaction_type": "hard_effect",
-                    "surface_context_a": "plastic on wood",
-                    "surface_context_b": "plastic on wood",
-                    "result": "COMPATIBLE",
+                    "group_key": "char_001__voice__onset",
+                    "input_action_ids": ["act_CUT_001_001"],
+                    "output_groups": [{"action_ids": ["act_CUT_001_001"], "reason": "single action"}],
                     "reason": "Same normalized surface.",
-                    "source": "normalize_match",
-                    "model": None,
+                    "source": "single_action",
+                    "model": "gemini-2.5-flash",
                 }
             ],
             "merge_group_count": 1,
-            "flash_call_count": 1,
-            "cache_hit_count": 0,
-            "total_flash_latency_ms": 3.5,
-            "per_call_flash_latency_ms": [3.5],
+            "llm_call_count": 1,
+            "total_llm_latency_ms": 3.5,
+            "per_call_llm_latency_ms": [3.5],
+            "llm_usage": {"prompt_token_count": 0, "candidates_token_count": 0, "total_token_count": 0},
+            "estimated_llm_cost_usd": 0.0,
         },
     )
 
     html = generate_pipeline_report(run_dir).read_text(encoding="utf-8")
 
-    assert "Surface Judgments" in html
-    assert "normalize_match" in html
-    assert "obj_001__hard_effect__plastic_on_wood" in html
+    assert "Track 07" in html
+    assert ">voice<" in html
+    assert "Legacy bounce" in html
+    assert "Track Group Judgments" in html
