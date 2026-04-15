@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from math import ceil
 from pathlib import Path
 
@@ -72,10 +74,8 @@ def _event_color_class(interaction_type: str) -> str:
 
 def _interaction_sort_key(interaction_type: str) -> tuple[int, str]:
     order = {
-        "hard_effect": 0,
-        "foley": 1,
-        "background": 2,
-        "electronic": 3,
+        "sfx": 0,
+        "ambience": 1,
     }
     return (order.get(interaction_type, 99), interaction_type)
 
@@ -108,19 +108,18 @@ def render_tab(run_dir: Path, report_html_path: Path) -> str | None:
             render_summary_card("Tracks", len(tracks)),
             render_summary_card("Unresolved", len(pipeline_result.get("unresolved_unknowns", []))),
             render_summary_card("Warnings", len(pipeline_result.get("warnings", []))),
-            render_summary_card("Flash Calls", payload.get("flash_call_count", 0)),
-            render_summary_card("Cache Hits", payload.get("cache_hit_count", 0)),
+            render_summary_card("LLM Calls", payload.get("llm_call_count", payload.get("flash_call_count", 0))),
             render_summary_card(
-                "Flash Tokens",
-                payload.get("flash_usage", {}).get("total_token_count", 0),
+                "LLM Tokens",
+                payload.get("llm_usage", payload.get("flash_usage", {})).get("total_token_count", 0),
             ),
             render_summary_card(
-                "Flash Cost (USD)",
-                f"{float(payload.get('estimated_flash_cost_usd', 0.0)):.6f}",
+                "LLM Cost (USD)",
+                f"{float(payload.get('estimated_llm_cost_usd', payload.get('estimated_flash_cost_usd', 0.0))):.6f}",
             ),
             render_summary_card(
-                "Flash Latency (ms)",
-                f"{float(payload.get('total_flash_latency_ms', 0.0)):.2f}",
+                "LLM Latency (ms)",
+                f"{float(payload.get('total_llm_latency_ms', payload.get('total_flash_latency_ms', 0.0))):.2f}",
             ),
         ]
     )
@@ -131,12 +130,12 @@ def render_tab(run_dir: Path, report_html_path: Path) -> str | None:
     sorted_tracks = sorted(
         (track for track in tracks if isinstance(track, dict)),
         key=lambda track: (
-            _interaction_sort_key(str(track.get("interaction_type", "background"))),
+            _interaction_sort_key(str(track.get("interaction_type", "ambience"))),
             str(track.get("track_id", "")),
         ),
     )
     for track in sorted_tracks:
-        interaction_type = str(track.get("interaction_type", "background"))
+        interaction_type = str(track.get("interaction_type", "ambience"))
         events = track.get("events", [])
         event_html = []
         for event in events:
@@ -183,38 +182,57 @@ def render_tab(run_dir: Path, report_html_path: Path) -> str | None:
     )
 
     warnings = render_warning_table(load_stage_warnings(run_dir, "stage_06_agent_c"))
-    judgments = payload.get("surface_judgments", [])
+    judgments = payload.get("track_group_judgments")
+    judgment_title = "Track Group Judgments"
+    new_format = True
+    if not isinstance(judgments, list):
+        judgments = payload.get("surface_judgments", [])
+        judgment_title = "Surface Judgments"
+        new_format = False
     judgment_section = ""
     if isinstance(judgments, list):
         if judgments:
-            rows = "".join(
-                "<tr>"
-                f"<td class='mono truncate'>{safe_text(item.get('action_id_a'))}</td>"
-                f"<td class='mono truncate'>{safe_text(item.get('action_id_b'))}</td>"
-                f"<td>{render_badge(str(item.get('interaction_type', 'background')))}</td>"
-                f"<td class='mono truncate'>{safe_text(item.get('surface_context_a'))}</td>"
-                f"<td class='mono truncate'>{safe_text(item.get('surface_context_b'))}</td>"
-                f"<td class='mono'>{safe_text(item.get('result'))}</td>"
-                f"<td class='mono'>{safe_text(item.get('source'))}</td>"
-                f"<td class='truncate'>{safe_text(item.get('model'))}</td>"
-                f"<td><div class='clamp-2 break-word'>{safe_text(item.get('reason'))}</div></td>"
-                "</tr>"
-                for item in judgments
-                if isinstance(item, dict)
-            )
+            if new_format:
+                rows = "".join(
+                    "<tr>"
+                    f"<td class='mono truncate'>{safe_text(item.get('group_key'))}</td>"
+                    f"<td class='mono truncate'>{safe_text(', '.join(item.get('input_action_ids', [])))}</td>"
+                    f"<td class='mono'>{safe_text(item.get('source'))}</td>"
+                    f"<td class='truncate'>{safe_text(item.get('model'))}</td>"
+                    f"<td><pre>{safe_text(json.dumps(item.get('output_groups', []), indent=2, ensure_ascii=False))}</pre></td>"
+                    "</tr>"
+                    for item in judgments
+                    if isinstance(item, dict)
+                )
+                heading = "<th>Group Key</th><th>Input Action IDs</th><th>Source</th><th>Model</th><th>Output Groups</th>"
+            else:
+                rows = "".join(
+                    "<tr>"
+                    f"<td class='mono truncate'>{safe_text(item.get('action_id_a'))}</td>"
+                    f"<td class='mono truncate'>{safe_text(item.get('action_id_b'))}</td>"
+                    f"<td>{render_badge(str(item.get('interaction_type', 'ambience')))}</td>"
+                    f"<td class='mono truncate'>{safe_text(item.get('surface_context_a'))}</td>"
+                    f"<td class='mono truncate'>{safe_text(item.get('surface_context_b'))}</td>"
+                    f"<td class='mono'>{safe_text(item.get('result'))}</td>"
+                    f"<td class='mono'>{safe_text(item.get('source'))}</td>"
+                    f"<td class='truncate'>{safe_text(item.get('model'))}</td>"
+                    f"<td><div class='clamp-2 break-word'>{safe_text(item.get('reason'))}</div></td>"
+                    "</tr>"
+                    for item in judgments
+                    if isinstance(item, dict)
+                )
+                heading = "<th>Action A</th><th>Action B</th><th>Interaction</th><th>Surface A</th><th>Surface B</th><th>Result</th><th>Source</th><th>Model</th><th>Reason</th>"
             judgment_section = (
                 "<div class='card' style='margin-top:16px'>"
-                "<div class='section-title'><h3>Surface Judgments</h3></div>"
-                "<div class='table-wrap'><table><thead><tr>"
-                "<th>Action A</th><th>Action B</th><th>Interaction</th><th>Surface A</th><th>Surface B</th><th>Result</th><th>Source</th><th>Model</th><th>Reason</th>"
-                "</tr></thead>"
+                f"<div class='section-title'><h3>{safe_text(judgment_title)}</h3></div>"
+                f"<div class='table-wrap'><table><thead><tr>{heading}</tr></thead>"
                 f"<tbody>{rows}</tbody></table></div></div>"
             )
         else:
             judgment_section = (
                 "<div class='card' style='margin-top:16px'>"
-                "<div class='section-title'><h3>Surface Judgments</h3></div>"
-                "<div class='empty-state'>No surface judgments recorded.</div>"
+                f"<div class='section-title'><h3>{safe_text(judgment_title)}</h3></div>"
+                f"<div class='empty-state'>No {safe_text(judgment_title).lower()} recorded.</div>"
                 "</div>"
             )
     return (

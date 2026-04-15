@@ -152,10 +152,9 @@ def _build_run_dir(tmp_path: Path) -> Path:
                             "action_id": "act_CUT_001_001",
                             "cut_id": "CUT_001",
                             "primary_source_id": "obj_001",
-                            "interaction_type": "hard_effect",
-                            "sound_description": "Ping pong bounce",
+                            "interaction_type": "sfx",
+                            "sound_description": "Ping pong bounce on a wooden table",
                             "observed_visual_description": "Ball hits table",
-                            "surface_context": "plastic on wood",
                             "boundary_flag": False,
                             "event": {"type": "onset", "timestamp": 1.2},
                             "unknown_resolution": None,
@@ -182,12 +181,11 @@ def _build_run_dir(tmp_path: Path) -> Path:
                 "track_manifest": {
                     "tracks": [
                         {
-                            "track_id": "obj_001__hard_effect__plastic_on_wood",
+                            "track_id": "obj_001__sfx__onset",
                             "track_type": "sfx",
                             "source_entity_id": "obj_001",
-                            "interaction_type": "hard_effect",
-                            "sound_description": "Ping pong bounce",
-                            "surface_context_summary": "plastic on wood",
+                            "interaction_type": "sfx",
+                            "sound_description": "Ping pong bounce on a wooden table",
                             "events": [{"type": "onset", "timestamp": 1.2}],
                         }
                     ]
@@ -195,24 +193,26 @@ def _build_run_dir(tmp_path: Path) -> Path:
                 "unresolved_unknowns": [],
                 "warnings": [],
             },
-            "surface_judgments": [
+            "track_group_judgments": [
                 {
-                    "action_id_a": "act_CUT_001_001",
-                    "action_id_b": "act_CUT_001_002",
-                    "interaction_type": "hard_effect",
-                    "surface_context_a": "plastic on wood",
-                    "surface_context_b": "plastic on wood",
-                    "result": "COMPATIBLE",
-                    "reason": "Same normalized surface.",
-                    "source": "normalize_match",
-                    "model": None,
+                    "group_key": "obj_001__sfx__onset",
+                    "input_action_ids": ["act_CUT_001_001"],
+                    "output_groups": [
+                        {
+                            "action_ids": ["act_CUT_001_001"],
+                            "reason": "single bounce event",
+                        }
+                    ],
+                    "source": "single_action",
+                    "model": "gemini-2.5-flash",
                 }
             ],
             "merge_group_count": 1,
-            "flash_call_count": 0,
-            "cache_hit_count": 0,
-            "total_flash_latency_ms": 0.0,
-            "per_call_flash_latency_ms": [],
+            "llm_call_count": 0,
+            "total_llm_latency_ms": 0.0,
+            "per_call_llm_latency_ms": [],
+            "llm_usage": {"prompt_token_count": 0, "candidates_token_count": 0, "total_token_count": 0},
+            "estimated_llm_cost_usd": 0.0,
         },
     )
     _write_json(
@@ -238,8 +238,8 @@ def test_generate_pipeline_report_writes_combined_html(tmp_path: Path):
     assert "06 Tracks" in html
     assert "files/123" in html
     assert "act_CUT_001_001" in html
-    assert "obj_001__hard_effect__plastic_on_wood" in html
-    assert "normalize_match" in html
+    assert "obj_001__sfx__onset" in html
+    assert "single_action" in html
     assert "data-tab-target='cuts'" in html
     assert "pipeline-report-source-video" in html
 
@@ -262,30 +262,27 @@ def test_generate_pipeline_report_sorts_tracks_and_shows_description(tmp_path: P
                 "track_manifest": {
                     "tracks": [
                         {
-                            "track_id": "amb_001__background",
+                            "track_id": "amb_001__ambience",
                             "track_type": "ambience",
                             "source_entity_id": "amb_001",
-                            "interaction_type": "background",
+                            "interaction_type": "ambience",
                             "sound_description": "Room tone.",
-                            "surface_context_summary": None,
                             "events": [{"type": "continuous", "start_time": 0.0, "end_time": 5.0}],
                         },
                         {
-                            "track_id": "char_001__foley__cloth_on_cloth",
+                            "track_id": "char_001__sfx__continuous",
                             "track_type": "sfx",
                             "source_entity_id": "char_001",
-                            "interaction_type": "foley",
+                            "interaction_type": "sfx",
                             "sound_description": "Cloth rustle.",
-                            "surface_context_summary": "cloth on cloth",
                             "events": [{"type": "continuous", "start_time": 1.0, "end_time": 2.0}],
                         },
                         {
-                            "track_id": "obj_001__hard_effect__plastic_on_wood",
+                            "track_id": "obj_001__sfx__onset",
                             "track_type": "sfx",
                             "source_entity_id": "obj_001",
-                            "interaction_type": "hard_effect",
+                            "interaction_type": "sfx",
                             "sound_description": "Ping pong bounce.",
-                            "surface_context_summary": "plastic on wood",
                             "events": [{"type": "onset", "timestamp": 1.2}],
                         },
                     ]
@@ -293,21 +290,73 @@ def test_generate_pipeline_report_sorts_tracks_and_shows_description(tmp_path: P
                 "unresolved_unknowns": [],
                 "warnings": [],
             },
-            "surface_judgments": [],
+            "track_group_judgments": [],
             "merge_group_count": 3,
-            "flash_call_count": 0,
-            "cache_hit_count": 0,
-            "total_flash_latency_ms": 0.0,
-            "per_call_flash_latency_ms": [],
+            "llm_call_count": 0,
+            "total_llm_latency_ms": 0.0,
+            "per_call_llm_latency_ms": [],
+            "llm_usage": {"prompt_token_count": 0, "candidates_token_count": 0, "total_token_count": 0},
+            "estimated_llm_cost_usd": 0.0,
         },
     )
 
     html = generate_pipeline_report(run_dir).read_text(encoding="utf-8")
 
-    hard_effect_index = html.index("obj_001__hard_effect__plastic_on_wood")
-    foley_index = html.index("char_001__foley__cloth_on_cloth")
-    background_index = html.index("amb_001__background")
-    assert hard_effect_index < foley_index < background_index
+    onset_index = html.index("obj_001__sfx__onset")
+    sfx_continuous_index = html.index("char_001__sfx__continuous")
+    ambience_index = html.index("amb_001__ambience")
+    assert sfx_continuous_index < ambience_index
+    assert onset_index < ambience_index
     assert "Ping pong bounce." in html
     assert "Cloth rustle." in html
     assert ">sfx<" in html
+
+
+def test_generate_pipeline_report_dual_reads_legacy_stage_06_output(tmp_path: Path):
+    run_dir = _build_run_dir(tmp_path)
+    _write_json(
+        run_dir / "stage_06_agent_c" / "output.json",
+        {
+            "pipeline_result": {
+                "track_manifest": {
+                    "tracks": [
+                        {
+                            "track_id": "obj_001__hard_effect__plastic_on_wood",
+                            "track_type": "sfx",
+                            "source_entity_id": "obj_001",
+                            "interaction_type": "hard_effect",
+                            "sound_description": "Legacy bounce",
+                            "surface_context_summary": "plastic on wood",
+                            "events": [{"type": "onset", "timestamp": 1.2}],
+                        }
+                    ]
+                },
+                "unresolved_unknowns": [],
+                "warnings": [],
+            },
+            "surface_judgments": [
+                {
+                    "action_id_a": "act_CUT_001_001",
+                    "action_id_b": "act_CUT_001_002",
+                    "interaction_type": "hard_effect",
+                    "surface_context_a": "plastic on wood",
+                    "surface_context_b": "plastic on wood",
+                    "result": "COMPATIBLE",
+                    "reason": "Same normalized surface.",
+                    "source": "normalize_match",
+                    "model": None,
+                }
+            ],
+            "merge_group_count": 1,
+            "flash_call_count": 1,
+            "cache_hit_count": 0,
+            "total_flash_latency_ms": 3.5,
+            "per_call_flash_latency_ms": [3.5],
+        },
+    )
+
+    html = generate_pipeline_report(run_dir).read_text(encoding="utf-8")
+
+    assert "Surface Judgments" in html
+    assert "normalize_match" in html
+    assert "obj_001__hard_effect__plastic_on_wood" in html

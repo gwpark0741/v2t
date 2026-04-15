@@ -188,6 +188,8 @@ body {
   white-space: nowrap;
   flex-shrink: 0;
 }
+.badge-sfx          { background: #fde8dc; color: var(--accent-orange); }
+.badge-ambience     { background: #d8e8f8; color: var(--accent-blue); }
 .badge-hard_effect  { background: #fde8dc; color: var(--accent-orange); }
 .badge-foley        { background: #d9f0e3; color: var(--accent-green); }
 .badge-background   { background: #d8e8f8; color: var(--accent-blue); }
@@ -475,6 +477,8 @@ td {
   border: 1px solid currentColor;
   opacity: 0.35;
 }
+.interaction-color-sfx { color: var(--accent-orange); background: rgba(224, 90, 30, 0.18); }
+.interaction-color-ambience { color: var(--accent-blue); background: rgba(26, 95, 180, 0.18); }
 .interaction-color-hard_effect { color: var(--accent-orange); background: rgba(224, 90, 30, 0.18); }
 .interaction-color-foley { color: var(--accent-green); background: rgba(26, 122, 62, 0.18); }
 .interaction-color-background { color: var(--accent-blue); background: rgba(26, 95, 180, 0.18); }
@@ -620,18 +624,15 @@ def render_video_or_placeholder(
 
 def render_badge(value: str, *, kind: str = "interaction") -> str:
     normalized = str(value).strip()
-    display_value = normalized
     if kind == "interaction":
         class_name = f"badge-{normalized}"
-        if normalized == "hard_effect":
-            display_value = "sfx"
     elif kind == "severity":
         class_name = f"badge-{normalized.lower()}"
     elif kind == "audibility":
         class_name = f"badge-{normalized}"
     else:
         class_name = "badge-info"
-    return f"<span class='badge {html.escape(class_name)}'>{safe_text(display_value)}</span>"
+    return f"<span class='badge {html.escape(class_name)}'>{safe_text(normalized)}</span>"
 
 
 def render_summary_card(label: str, value: object) -> str:

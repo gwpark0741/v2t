@@ -18,12 +18,12 @@ def build_agent_c_report_html(
     unresolved_unknowns = pipeline_result.unresolved_unknowns
     warnings = pipeline_result.warnings
     total_action_count = sum(len(track.events) for track in tracks) + len(unresolved_unknowns)
-    average_flash_latency_ms = (
-        result.total_flash_latency_ms / result.flash_call_count
-        if result.flash_call_count
+    average_llm_latency_ms = (
+        result.total_llm_latency_ms / result.llm_call_count
+        if result.llm_call_count
         else 0.0
     )
-    flash_usage = result.flash_usage
+    llm_usage = result.llm_usage
 
     track_rows = "".join(
         (
@@ -33,14 +33,13 @@ def build_agent_c_report_html(
             f"<td>{escape(track.source_entity_id)}</td>"
             f"<td>{escape(track.interaction_type)}</td>"
             f"<td>{escape(track.sound_description)}</td>"
-            f"<td>{escape(track.surface_context_summary or '-')}</td>"
             f"<td>{len(track.events)}</td>"
             "</tr>"
         )
         for track in tracks
     )
     if not track_rows:
-        track_rows = "<tr><td colspan='7' class='muted'>No tracks synthesized.</td></tr>"
+        track_rows = "<tr><td colspan='6' class='muted'>No tracks synthesized.</td></tr>"
 
     unresolved_rows = "".join(
         (
@@ -73,40 +72,35 @@ def build_agent_c_report_html(
     if not warning_rows:
         warning_rows = "<tr><td colspan='4' class='muted'>No warnings recorded.</td></tr>"
 
-    surface_judgment_section = "<p class='muted'>No surface judgments recorded.</p>"
-    if result.surface_judgments:
+    track_group_judgment_section = "<p class='muted'>No track group judgments recorded.</p>"
+    if result.track_group_judgments:
         rows = "".join(
             (
                 "<tr>"
-                f"<td>{escape(item.action_id_a)}</td>"
-                f"<td>{escape(item.action_id_b)}</td>"
-                f"<td>{escape(item.interaction_type)}</td>"
-                f"<td>{escape(item.surface_context_a or '-')}</td>"
-                f"<td>{escape(item.surface_context_b or '-')}</td>"
-                f"<td>{escape(item.result)}</td>"
+                f"<td>{escape(item.group_key)}</td>"
+                f"<td>{escape(', '.join(item.input_action_ids))}</td>"
                 f"<td><span class='badge badge-{escape(item.source)}'>{escape(item.source)}</span></td>"
-                f"<td>{escape(item.reason)}</td>"
                 f"<td>{escape(item.model or '-')}</td>"
+                f"<td><pre>{escape(json.dumps([group.model_dump(mode='json') for group in item.output_groups], indent=2, ensure_ascii=False))}</pre></td>"
                 "</tr>"
             )
-            for item in result.surface_judgments
+            for item in result.track_group_judgments
         )
-        surface_judgment_section = f"""
+        track_group_judgment_section = f"""
       <table>
         <thead>
           <tr>
-            <th>Action A</th><th>Action B</th><th>Interaction</th><th>Surface A</th>
-            <th>Surface B</th><th>Result</th><th>Source</th><th>Reason</th><th>Model</th>
+            <th>Group Key</th><th>Input Action IDs</th><th>Source</th><th>Model</th><th>Output Groups</th>
           </tr>
         </thead>
         <tbody>{rows}</tbody>
       </table>
 """
-    per_call_latency_section = "<p class='muted'>No Flash calls recorded.</p>"
-    if result.per_call_flash_latency_ms:
+    per_call_latency_section = "<p class='muted'>No LLM calls recorded.</p>"
+    if result.per_call_llm_latency_ms:
         latency_items = "".join(
             f"<li>{index + 1}. {latency_ms:.2f} ms</li>"
-            for index, latency_ms in enumerate(result.per_call_flash_latency_ms)
+            for index, latency_ms in enumerate(result.per_call_llm_latency_ms)
         )
         per_call_latency_section = f"<ol>{latency_items}</ol>"
 
@@ -179,19 +173,15 @@ def build_agent_c_report_html(
       font-weight: 600;
       white-space: nowrap;
     }}
-    .badge-flash {{
+    .badge-llm {{
       background: #dbeafe;
       color: #1d4ed8;
     }}
-    .badge-cache_hit {{
-      background: #e5e7eb;
-      color: #374151;
-    }}
-    .badge-normalize_match, .badge-null_both, .badge-null_one_side {{
+    .badge-single_action {{
       background: #dcfce7;
       color: #166534;
     }}
-    .badge-flash_error {{
+    .badge-llm_error {{
       background: #fee2e2;
       color: #b91c1c;
     }}
@@ -207,14 +197,13 @@ def build_agent_c_report_html(
         <div class="label">Track Count</div><div>{len(tracks)}</div>
         <div class="label">Unresolved Unknown Count</div><div>{len(unresolved_unknowns)}</div>
         <div class="label">Warning Count</div><div>{len(warnings)}</div>
-        <div class="label">Flash Call Count</div><div>{result.flash_call_count}</div>
-        <div class="label">Cache Hit Count</div><div>{result.cache_hit_count}</div>
-        <div class="label">Total Flash Latency (ms)</div><div>{result.total_flash_latency_ms:.2f}</div>
-        <div class="label">Average Flash Latency (ms)</div><div>{average_flash_latency_ms:.2f}</div>
-        <div class="label">Flash Prompt Tokens</div><div>{flash_usage.prompt_token_count}</div>
-        <div class="label">Flash Output Tokens</div><div>{flash_usage.candidates_token_count}</div>
-        <div class="label">Flash Total Tokens</div><div>{flash_usage.total_token_count}</div>
-        <div class="label">Estimated Flash Cost (USD)</div><div>{result.estimated_flash_cost_usd:.6f}</div>
+        <div class="label">LLM Call Count</div><div>{result.llm_call_count}</div>
+        <div class="label">Total LLM Latency (ms)</div><div>{result.total_llm_latency_ms:.2f}</div>
+        <div class="label">Average LLM Latency (ms)</div><div>{average_llm_latency_ms:.2f}</div>
+        <div class="label">LLM Prompt Tokens</div><div>{llm_usage.prompt_token_count}</div>
+        <div class="label">LLM Output Tokens</div><div>{llm_usage.candidates_token_count}</div>
+        <div class="label">LLM Total Tokens</div><div>{llm_usage.total_token_count}</div>
+        <div class="label">Estimated LLM Cost (USD)</div><div>{result.estimated_llm_cost_usd:.6f}</div>
       </div>
     </section>
     <section class="card">
@@ -223,7 +212,7 @@ def build_agent_c_report_html(
         <thead>
           <tr>
             <th>Track ID</th><th>Track Type</th><th>Source Entity</th><th>Interaction</th>
-            <th>Sound Description</th><th>Surface Context Summary</th><th>Event Count</th>
+            <th>Sound Description</th><th>Event Count</th>
           </tr>
         </thead>
         <tbody>{track_rows}</tbody>
@@ -250,11 +239,11 @@ def build_agent_c_report_html(
       </table>
     </section>
     <section class="card">
-      <h2>Surface Judgments</h2>
-      {surface_judgment_section}
+      <h2>Track Group Judgments</h2>
+      {track_group_judgment_section}
     </section>
     <section class="card">
-      <h2>Per-Call Flash Latency</h2>
+      <h2>Per-Call LLM Latency</h2>
       {per_call_latency_section}
     </section>
   </div>
