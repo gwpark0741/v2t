@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from importlib import import_module
+
 from .agent_a import build_agent_a_request, validate_agent_a_response
 from .agent_b import build_agent_b_cut_input, validate_agent_b_response
 from .agent_c import run_agent_c
@@ -111,6 +113,29 @@ from .agent_a_report import build_agent_a_report_html, write_agent_a_report
 from .agent_c_report import build_agent_c_report_html, write_agent_c_report
 from .synthesizer import synthesize_tracks
 
+_LAZY_EXPORTS = {
+    "PipelineAutomationResult": (".pipeline_automation", "PipelineAutomationResult"),
+    "discover_video_paths": (".pipeline_automation", "discover_video_paths"),
+    "run_pipeline_for_inputs": (".pipeline_automation", "run_pipeline_for_inputs"),
+    "run_pipeline_for_video": (".pipeline_automation", "run_pipeline_for_video"),
+    "ShareExportResult": (".share_exports", "ShareExportResult"),
+    "ShareSource": (".share_exports", "ShareSource"),
+    "export_first_share": (".share_exports", "export_first_share"),
+    "export_first_share_batch": (".share_exports", "export_first_share_batch"),
+    "export_second_share_batch": (".share_exports", "export_second_share_batch"),
+    "export_second_share_bundle": (".share_exports", "export_second_share_bundle"),
+}
+
+
+def __getattr__(name: str):
+    if name not in _LAZY_EXPORTS:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    module_name, attr_name = _LAZY_EXPORTS[name]
+    module = import_module(module_name, __name__)
+    value = getattr(module, attr_name)
+    globals()[name] = value
+    return value
+
 __all__ = [
     "Action",
     "AgentARequest",
@@ -145,6 +170,7 @@ __all__ = [
     "LocalPreprocessingResult",
     "OnsetEvent",
     "PipelineResult",
+    "PipelineAutomationResult",
     "PreprocessingResult",
     "RUN_MANIFEST_FILENAME",
     "RunManifest",
@@ -155,6 +181,8 @@ __all__ = [
     "StageErrorRecord",
     "StageStatus",
     "StageWarningsRecord",
+    "ShareExportResult",
+    "ShareSource",
     "Track",
     "TrackGroupJudgment",
     "TrackGroupResult",
@@ -183,7 +211,12 @@ __all__ = [
     "DEFAULT_AGENT_B_SYSTEM_PROMPT",
     "DEFAULT_TRACK_JUDGE_MODEL",
     "TRACK_JUDGE_SYSTEM_PROMPT",
+    "discover_video_paths",
     "ensure_run_manifest",
+    "export_first_share",
+    "export_first_share_batch",
+    "export_second_share_batch",
+    "export_second_share_bundle",
     "extract_video_metadata",
     "generate_run_id",
     "get_stage_dir",
@@ -196,6 +229,8 @@ __all__ = [
     "prepare_full_video_asset",
     "require_completed_stage_output",
     "run_local_preprocessing",
+    "run_pipeline_for_inputs",
+    "run_pipeline_for_video",
     "run_preprocessing",
     "run_segment_prep",
     "run_agent_a_runtime",
