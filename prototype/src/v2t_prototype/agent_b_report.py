@@ -226,9 +226,9 @@ def build_agent_b_report_html(
         <div class="label">Estimated Cost (USD)</div><div>{result.estimated_total_cost_usd:.6f}</div>
         <div class="label">Skipped Cut IDs</div><div>{escape(skipped_list)}</div>
         <div class="label">Failed Cut IDs</div><div>{escape(failed_list)}</div>
-        <div class="label">Characters</div><div>{len(entity_registry.characters)}</div>
-        <div class="label">Key Objects</div><div>{len(entity_registry.key_objects)}</div>
-        <div class="label">Ambience Sources</div><div>{len(entity_registry.ambience_sources)}</div>
+        <div class="label">Entities</div><div>{len(entity_registry.entities)}</div>
+        <div class="label">Ambience</div><div>{len(entity_registry.ambience)}</div>
+        <div class="label">Unknowns</div><div>{len(entity_registry.unknowns)}</div>
       </div>
     </section>
     {warning_section}

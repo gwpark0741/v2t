@@ -81,35 +81,35 @@ def _build_run_dir(tmp_path: Path) -> Path:
             "raw_response_text": "{}",
             "response": {
                 "entity_registry": {
-                    "characters": [
+                    "entities": [
                         {
-                            "id": "char_001",
+                            "id": "player",
                             "label": "Player",
-                            "audibility": "audible",
-                            "visual_description": "Tennis player",
-                            "entry_exit_intervals": [{"start_time": 0.0, "end_time": 5.0}],
-                        }
-                    ],
-                    "key_objects": [
+                            "children": [
+                                {
+                                    "id": "char_001",
+                                    "label": "Player cloth",
+                                }
+                            ],
+                        },
                         {
-                            "id": "obj_001",
+                            "id": "ball",
                             "label": "Ball",
-                            "material": "plastic",
-                            "surface": "smooth",
-                            "audibility": "likely_audible",
-                            "has_mechanism": False,
-                            "visual_description": "Ping pong ball",
+                            "children": [
+                                {
+                                    "id": "obj_001",
+                                    "label": "Ball impact",
+                                }
+                            ],
                         }
                     ],
-                    "ambience_sources": [
+                    "ambience": [
                         {
                             "id": "amb_001",
                             "label": "Hall",
-                            "space_description": "Indoor sports hall",
-                            "distance_profile": "mid",
-                            "tonal_quality": "bright",
                         }
                     ],
+                    "unknowns": [],
                 }
             },
         },
@@ -279,14 +279,6 @@ def test_generate_pipeline_report_sorts_tracks_and_shows_description(tmp_path: P
                         },
                         {
                             "track_number": 3,
-                            "track_id": "char_001__voice__onset",
-                            "track_type": "voice",
-                            "source_entity_id": "char_001",
-                            "sound_description": "Short vocal grunt.",
-                            "events": [{"type": "onset", "timestamp": 2.5}],
-                        },
-                        {
-                            "track_number": 4,
                             "track_id": "amb_001__ambience",
                             "track_type": "ambience",
                             "source_entity_id": "amb_001",
@@ -310,34 +302,29 @@ def test_generate_pipeline_report_sorts_tracks_and_shows_description(tmp_path: P
 
     html = generate_pipeline_report(run_dir).read_text(encoding="utf-8")
 
-    char_source_index = html.index("<span class='mono truncate'>char_001</span><span class='badge badge-info'>2 tracks</span>")
-    obj_source_index = html.index("<span class='mono truncate'>obj_001</span><span class='badge badge-info'>1 tracks</span>")
+    char_source_index = html.index("<span class='mono truncate'>player - char_001</span><span class='badge badge-info'>1 tracks</span>")
+    obj_source_index = html.index("<span class='mono truncate'>ball - obj_001</span><span class='badge badge-info'>1 tracks</span>")
     amb_source_index = html.index("<span class='mono truncate'>amb_001</span><span class='badge badge-info'>1 tracks</span>")
     assert char_source_index < obj_source_index < amb_source_index
     cloth_index = html.index("Cloth rustle.")
     bounce_index = html.index("Ping pong bounce.")
-    voice_index = html.index("Short vocal grunt.")
     ambience_index = html.index("Room tone.")
-    assert cloth_index < bounce_index
-    assert bounce_index < voice_index
-    assert voice_index < ambience_index
+    assert cloth_index < bounce_index < ambience_index
     assert "All Tracks" in html
     assert "By Source" in html
     assert "tracks-layout" in html
     assert "tracks-scroll-panel" in html
     assert "Source Video" in html
     assert ">sfx<" in html
-    assert ">voice<" in html
     assert ">continuous<" in html
     assert ">onset<" in html
     assert "Track 01" in html
     assert "Track 02" in html
     assert "Track 03" in html
-    assert "Track 04" in html
-    assert "char_001__sfx__continuous" not in html
-    assert "char_001__voice__onset" not in html
+    assert "char_001__sfx__continuous" in html
+    assert "player - char_001" in html
+    assert "ball - obj_001" in html
     assert "continuous @ 1.000s ~ 2.000s" not in html
-    assert "onset @ 2.500s" not in html
 
 
 def test_generate_pipeline_report_uses_track_numbers_from_stage_06_output(tmp_path: Path):
@@ -350,8 +337,8 @@ def test_generate_pipeline_report_uses_track_numbers_from_stage_06_output(tmp_pa
                     "tracks": [
                         {
                             "track_number": 7,
-                            "track_id": "char_001__voice__onset",
-                            "track_type": "voice",
+                            "track_id": "char_001__sfx__onset",
+                            "track_type": "sfx",
                             "source_entity_id": "char_001",
                             "sound_description": "Legacy bounce",
                             "events": [{"type": "onset", "timestamp": 1.2}],
@@ -363,7 +350,7 @@ def test_generate_pipeline_report_uses_track_numbers_from_stage_06_output(tmp_pa
             },
             "track_group_judgments": [
                 {
-                    "group_key": "char_001__voice__onset",
+                    "group_key": "char_001__sfx__onset",
                     "input_action_ids": ["act_CUT_001_001"],
                     "output_groups": [{"action_ids": ["act_CUT_001_001"], "reason": "single action"}],
                     "reason": "Same normalized surface.",
@@ -383,6 +370,8 @@ def test_generate_pipeline_report_uses_track_numbers_from_stage_06_output(tmp_pa
     html = generate_pipeline_report(run_dir).read_text(encoding="utf-8")
 
     assert "Track 07" in html
-    assert ">voice<" in html
+    assert "char_001__sfx__onset" in html
+    assert "player - char_001" in html
+    assert ">sfx<" in html
     assert "Legacy bounce" in html
     assert "Track Group Judgments" in html

@@ -5,14 +5,14 @@ from v2t_prototype.agent_a_runtime import AgentARuntimeOutput
 from v2t_prototype.models import (
     AgentARequest,
     AgentAResponse,
-    AmbienceSource,
-    Character,
+    Ambience,
     Cut,
+    Entity,
+    Entity_Child,
     EntityRegistry,
     FullVideoAssetResult,
-    Interval,
-    KeyObject,
     LocalPreprocessingResult,
+    Unknown,
     VideoMetadata,
 )
 
@@ -52,63 +52,47 @@ def _make_sample_runtime_output(full_video_asset: FullVideoAssetResult) -> Agent
     )
     response = AgentAResponse(
         entity_registry=EntityRegistry(
-            characters=[
-                Character(
-                    id="char_001",
-                    label="Lead",
-                    visual_description="Runs",
-                    entry_exit_intervals=[Interval(start_time=0.0, end_time=10.0)],
-                    audibility="audible",
+            entities=[
+                Entity(
+                    id="lead",
+                    label="lead",
+                    children=[
+                        Entity_Child(id="lead_footstep", label="lead footstep"),
+                    ],
                 )
             ],
-            key_objects=[
-                KeyObject(
-                    id="obj_ball",
-                    label="Ball",
-                    visual_description="White ball",
-                    material="leather",
-                    surface="smooth",
-                    has_mechanism=False,
-                    audibility="audible",
-                )
-            ],
-            ambience_sources=[
-                AmbienceSource(
-                    id="amb_crowd",
-                    label="Crowd",
-                    space_description="Stands",
-                    distance_profile="far",
-                    tonal_quality="cheerful",
+            ambience=[Ambience(id="wind", label="wind")],
+            unknowns=[
+                Unknown(
+                    id="unknown_1",
+                    label="unknown 1",
+                    visual_description="wrapped item behind the lead actor",
                 )
             ],
         ),
     )
-    return AgentARuntimeOutput(request=request, response=response, raw_response_text="{}")
+    return AgentARuntimeOutput(
+        request=request,
+        response=response,
+        raw_response_text=response.entity_registry.model_dump_json(),
+    )
 
 
-def test_build_agent_a_report_html_includes_sections():
+def test_build_agent_a_report_html_includes_hierarchy_sections():
     full_video_asset = _make_sample_full_video_asset_result()
     runtime_output = _make_sample_runtime_output(full_video_asset)
     html = build_agent_a_report_html(full_video_asset, runtime_output, title="Agent Report")
 
     assert "Agent Report" in html
-    assert "video-player" in html
-    assert "CUT_001" in html
     assert "Input Video Summary" in html
-    assert "Upload Result" in html
-    assert "Preprocessing Output" in html
-    assert "Agent A Request Summary" in html
-    assert "Agent A Request JSON" in html
-    assert "Agent A Response Summary" in html
-    assert "Raw Gemini JSON Text" in html
-    assert "video_mime_type" in html
-    assert "gs://test-bucket/video.mp4" in html
-    assert "Characters" in html
-    assert "Key Objects" in html
-    assert "Ambience Sources" in html
+    assert "Agent A Entity Registry" in html
+    assert "Entities" in html
+    assert "Ambience" in html
+    assert "Unknowns" in html
+    assert "lead footstep" in html
+    assert "wrapped item behind the lead actor" in html
     assert "Validation Summary" in html
     assert "PASS" in html
-    assert "No validation issues detected." in html
 
 
 def test_write_agent_a_report_creates_file(tmp_path: Path):
@@ -122,5 +106,4 @@ def test_write_agent_a_report_creates_file(tmp_path: Path):
     content = output_file.read_text()
     assert "<h1>Report</h1>" in content
     assert "CUT_002" in content
-    assert "Agent A Request JSON" in content
-    assert "Raw Gemini JSON Text" in content
+    assert "Unknowns" in content

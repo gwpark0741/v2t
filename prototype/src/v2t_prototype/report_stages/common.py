@@ -220,7 +220,6 @@ body {
   flex-shrink: 0;
 }
 .badge-sfx          { background: #fde8dc; color: var(--accent-orange); }
-.badge-voice        { background: #ede0f5; color: var(--accent-purple); }
 .badge-ambience     { background: #d8e8f8; color: var(--accent-blue); }
 .badge-hard_effect  { background: #fde8dc; color: var(--accent-orange); }
 .badge-foley        { background: #d9f0e3; color: var(--accent-green); }
@@ -528,7 +527,6 @@ td {
   opacity: 0.35;
 }
 .interaction-color-sfx { color: var(--accent-orange); background: rgba(224, 90, 30, 0.18); }
-.interaction-color-voice { color: var(--accent-purple); background: rgba(107, 63, 160, 0.18); }
 .interaction-color-ambience { color: var(--accent-blue); background: rgba(26, 95, 180, 0.18); }
 .interaction-color-hard_effect { color: var(--accent-orange); background: rgba(224, 90, 30, 0.18); }
 .interaction-color-foley { color: var(--accent-green); background: rgba(26, 122, 62, 0.18); }

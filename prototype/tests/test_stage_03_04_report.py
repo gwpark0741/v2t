@@ -6,16 +6,16 @@ from v2t_prototype.agent_a_runtime import AgentARuntimeOutput
 from v2t_prototype.models import (
     AgentARequest,
     AgentAResponse,
-    AmbienceSource,
-    Character,
+    Ambience,
     Cut,
+    Entity,
+    Entity_Child,
     EntityRegistry,
     FullVideoAssetResult,
-    Interval,
-    KeyObject,
     LocalPreprocessingResult,
     SegmentClip,
     SegmentPrepResult,
+    Unknown,
     VideoMetadata,
 )
 from v2t_prototype.stage_03_04_report import (
@@ -58,33 +58,21 @@ def _sample_agent_a_output() -> AgentARuntimeOutput:
     )
     response = AgentAResponse(
         entity_registry=EntityRegistry(
-            characters=[
-                Character(
-                    id="char_001",
-                    label="Fighter A",
-                    visual_description="Armored fighter",
-                    entry_exit_intervals=[Interval(start_time=0.0, end_time=10.0)],
-                    audibility="likely_audible",
+            entities=[
+                Entity(
+                    id="fighter",
+                    label="fighter",
+                    children=[
+                        Entity_Child(id="fighter_armor", label="fighter armor"),
+                    ],
                 )
             ],
-            key_objects=[
-                KeyObject(
-                    id="obj_001",
-                    label="Sword",
-                    visual_description="Metal sword",
-                    material="steel",
-                    surface="polished",
-                    has_mechanism=False,
-                    audibility="audible",
-                )
-            ],
-            ambience_sources=[
-                AmbienceSource(
-                    id="amb_001",
-                    label="Training yard",
-                    space_description="Open outdoor arena",
-                    distance_profile="mid",
-                    tonal_quality="dry",
+            ambience=[Ambience(id="training_yard", label="training yard")],
+            unknowns=[
+                Unknown(
+                    id="unknown_1",
+                    label="unknown 1",
+                    visual_description="wrapped object near the fighter",
                 )
             ],
         ),
@@ -92,7 +80,7 @@ def _sample_agent_a_output() -> AgentARuntimeOutput:
     return AgentARuntimeOutput(
         request=request,
         response=response,
-        raw_response_text=response.model_dump_json(),
+        raw_response_text=response.entity_registry.model_dump_json(),
     )
 
 
@@ -126,11 +114,9 @@ def test_build_stage_03_04_report_html_contains_pairwise_content():
     assert "No segment clip available." in html
     assert "Authoritative Cut" in html
     assert "Agent A Entity Registry" in html
-    assert "Fighter A" in html
-    assert "Sword" in html
-    assert "Training yard" in html
-    assert "Padded Start" not in html
-    assert "Padded End" not in html
+    assert "fighter armor" in html
+    assert "training yard" in html
+    assert "wrapped object near the fighter" in html
 
 
 def test_write_stage_03_04_report_writes_file(tmp_path: Path):

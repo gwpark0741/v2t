@@ -10,13 +10,13 @@ from v2t_prototype.models import (
     AgentAResponse,
     AgentBAllCutsResult,
     AgentBCutOutput,
-    AmbienceSource,
-    Character,
+    Ambience,
     ContinuousEvent,
     Cut,
+    Entity,
+    Entity_Child,
     EntityRegistry,
-    Interval,
-    KeyObject,
+    Unknown,
     UnknownResolution,
     VideoMetadata,
     WarningItem,
@@ -42,33 +42,21 @@ def _agent_a_output() -> AgentARuntimeOutput:
     )
     response = AgentAResponse(
         entity_registry=EntityRegistry(
-            characters=[
-                Character(
-                    id="char_001",
-                    label="Fighter",
-                    visual_description="Armored fighter",
-                    entry_exit_intervals=[Interval(start_time=0.0, end_time=8.0)],
-                    audibility="likely_audible",
+            entities=[
+                Entity(
+                    id="fighter",
+                    label="fighter",
+                    children=[
+                        Entity_Child(id="fighter_armor", label="fighter armor"),
+                    ],
                 )
             ],
-            key_objects=[
-                KeyObject(
-                    id="obj_001",
-                    label="Sword",
-                    visual_description="Steel sword",
-                    material="steel",
-                    surface="polished",
-                    has_mechanism=False,
-                    audibility="audible",
-                )
-            ],
-            ambience_sources=[
-                AmbienceSource(
-                    id="amb_001",
-                    label="Yard",
-                    space_description="Open yard",
-                    distance_profile="mid",
-                    tonal_quality="dry",
+            ambience=[Ambience(id="yard_wind", label="yard wind")],
+            unknowns=[
+                Unknown(
+                    id="unknown_1",
+                    label="unknown 1",
+                    visual_description="wrapped item near the fighter",
                 )
             ],
         )
@@ -76,7 +64,7 @@ def _agent_a_output() -> AgentARuntimeOutput:
     return AgentARuntimeOutput(
         request=request,
         response=response,
-        raw_response_text=response.model_dump_json(),
+        raw_response_text=response.entity_registry.model_dump_json(),
     )
 
 
@@ -142,8 +130,9 @@ def test_build_agent_b_report_html_contains_key_fields():
     assert "raw_only_marker" in html
     assert "continuous 0.500s - 1.500s" in html
     assert "Raw response timestamps below are clip-local." in html
-    assert "Event (absolute)" in html
-    assert "surface_context" not in html
+    assert "Entities" in html
+    assert "Unknowns" in html
+    assert "voice" not in html
 
 
 def test_write_agent_b_report_writes_html_file(tmp_path: Path):

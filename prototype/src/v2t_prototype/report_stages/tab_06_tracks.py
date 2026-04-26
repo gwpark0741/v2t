@@ -26,6 +26,51 @@ _SOURCE_COLORS = [
 ]
 
 
+def _build_source_display_by_id(run_dir: Path) -> dict[str, str]:
+    payload = stage_output(run_dir, "stage_03_agent_a")
+    if not isinstance(payload, dict):
+        return {}
+    response = payload.get("response", {})
+    if not isinstance(response, dict):
+        return {}
+    entity_registry = response.get("entity_registry", {})
+    if not isinstance(entity_registry, dict):
+        return {}
+
+    source_display_by_id: dict[str, str] = {}
+
+    def register_nodes(items: list[dict]) -> None:
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            parent_id = str(item.get("id", "")).strip()
+            if not parent_id:
+                continue
+            children = item.get("children", [])
+            if isinstance(children, list) and children:
+                for child in children:
+                    if not isinstance(child, dict):
+                        continue
+                    child_id = str(child.get("id", "")).strip()
+                    if not child_id:
+                        continue
+                    source_display_by_id[child_id] = f"{parent_id} - {child_id}"
+            else:
+                source_display_by_id[parent_id] = parent_id
+
+    register_nodes(entity_registry.get("entities", []))
+    register_nodes(entity_registry.get("ambience", []))
+
+    for item in entity_registry.get("unknowns", []):
+        if not isinstance(item, dict):
+            continue
+        unknown_id = str(item.get("id", "")).strip()
+        if unknown_id:
+            source_display_by_id[unknown_id] = unknown_id
+
+    return source_display_by_id
+
+
 def _to_percent(value: float, duration: float) -> float:
     if not duration or duration <= 0:
         return 0.0
@@ -113,14 +158,14 @@ def _build_track_rows(
     duration: float,
     lane_rules: str,
     *,
-    show_source: bool = False,
-    source_color_by_id: dict[str, str] | None = None,
+    source_display_by_id: dict[str, str] | None = None,
 ) -> str:
     timeline_rows: list[str] = []
     for track in tracks:
         track_type = str(track.get("track_type", "ambience"))
         track_number = int(track.get("track_number", 0) or 0)
         source_id = str(track.get("source_entity_id", "unknown_source"))
+        source_display = source_display_by_id.get(source_id, source_id) if source_display_by_id else source_id
         events = track.get("events", [])
         event_html = []
         for event in events:
@@ -144,21 +189,12 @@ def _build_track_rows(
                     f"style='left:{_to_percent(start_time, duration):.4f}%; width:max({width:.4f}%, 3px)' "
                     f"title=\"{safe_text(track.get('sound_description'))}\"></div>"
                 )
-        source_meta = ""
-        if show_source:
-            accent = "#cccccc"
-            if source_color_by_id is not None:
-                accent = source_color_by_id.get(source_id, accent)
-            source_meta = (
-                "<div style='margin-top:6px'>"
-                f"<span class='mono' style='display:inline-block; padding-left:8px; border-left:4px solid {accent}'>{safe_text(source_id)}</span>"
-                "</div>"
-            )
         timeline_rows.append(
             "<div class='timeline-row'>"
             "<div class='timeline-label'>"
-            f"{source_meta}"
             f"<div class='mono break-word'>Track {track_number:02d}</div>"
+            f"<div class='mono break-word' style='margin-top:4px'>{safe_text(track.get('track_id'))}</div>"
+            f"<div class='mono muted break-word' style='margin-top:4px'>{safe_text(source_display)}</div>"
             f"<div class='break-word' style='margin-top:6px; color: var(--text-secondary)'>{safe_text(track.get('sound_description'))}</div>"
             f"{_render_event_labels(events if isinstance(events, list) else [])}"
             f"<div style='margin-top:4px'>{render_badge(track_type)}</div>"
@@ -227,6 +263,7 @@ def render_tab(run_dir: Path, report_html_path: Path) -> str | None:
         source_id: _SOURCE_COLORS[index % len(_SOURCE_COLORS)]
         for index, source_id in enumerate(source_ids)
     }
+    source_display_by_id = _build_source_display_by_id(run_dir)
     all_tracks = [track for track in tracks if isinstance(track, dict)]
 
     source_sections: list[str] = []
@@ -234,12 +271,13 @@ def render_tab(run_dir: Path, report_html_path: Path) -> str | None:
         source_color = source_color_by_id[source_id]
         source_tracks = source_groups[source_id]
         accordion_id = f"stage06-source-{index}"
+        source_heading = source_display_by_id.get(source_id, source_id)
         source_sections.append(
             "<div class='accordion-item' style='margin-top:16px'>"
             f"<button class='accordion-trigger' type='button' data-accordion-target='{accordion_id}' "
             f"style='border-left: 6px solid {source_color}; background: linear-gradient(to right, {source_color}14, var(--bg-surface) 18%)'>"
             "<div class='accordion-meta'>"
-            f"<span class='mono truncate'>{safe_text(source_id)}</span>"
+            f"<span class='mono truncate'>{safe_text(source_heading)}</span>"
             f"<span class='badge badge-info'>{len(source_tracks)} tracks</span>"
             "</div>"
             f"<span class='muted'>source group</span>"
@@ -251,7 +289,7 @@ def render_tab(run_dir: Path, report_html_path: Path) -> str | None:
             "<div class='timeline-ruler-label'></div>"
             f"<div class='timeline-ruler-lane'><div class='timeline-ruler-inner'>{_render_rule_lines(duration)}</div></div>"
             "</div>"
-            f"{_build_track_rows(source_tracks, duration, lane_rules)}"
+            f"{_build_track_rows(source_tracks, duration, lane_rules, source_display_by_id=source_display_by_id)}"
             "</div>"
             "</div>"
             "</div>"
@@ -264,7 +302,7 @@ def render_tab(run_dir: Path, report_html_path: Path) -> str | None:
         "<div class='timeline-ruler-label'></div>"
         f"<div class='timeline-ruler-lane'><div class='timeline-ruler-inner'>{_render_rule_lines(duration)}</div></div>"
         "</div>"
-        f"{_build_track_rows(all_tracks, duration, lane_rules, show_source=True, source_color_by_id=source_color_by_id)}"
+        f"{_build_track_rows(all_tracks, duration, lane_rules, source_display_by_id=source_display_by_id)}"
         "</div>"
     )
 

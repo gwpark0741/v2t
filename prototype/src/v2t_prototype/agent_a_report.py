@@ -3,13 +3,16 @@ from __future__ import annotations
 import json
 from html import escape
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, TypeAlias
 
 from pydantic import BaseModel
 
 from .agent_a import validate_agent_a_response
 from .agent_a_runtime import AgentARuntimeOutput
-from .models import FullVideoAssetResult
+from .models import Ambience, Entity, Entity_Child, FullVideoAssetResult, Unknown
+
+
+RenderableNode: TypeAlias = Entity | Entity_Child | Ambience
 
 
 def _format_seconds(value: float) -> str:
@@ -23,21 +26,50 @@ def _default_video_src(full_video_asset: FullVideoAssetResult, *, video_src: str
     return path.expanduser().resolve().as_uri()
 
 
-def _render_entity_list(label: str, items: Iterable[BaseModel]) -> str:
-    if not items:
+def _render_entity_tree(label: str, items: Iterable[RenderableNode]) -> str:
+    item_list = list(items)
+    if not item_list:
         return (
             "<div class='entity-section'>"
             f"<h3>{escape(label)}</h3><p class='muted'>No entries.</p>"
             "</div>"
         )
 
-    rows = []
-    for item in items:
-        fields = "<br/>".join(
-            f"{escape(name)}: {escape(str(getattr(item, name)))}"
-            for name in type(item).model_fields
+    def render_node(node: RenderableNode) -> str:
+        child_list = "".join(render_node(child) for child in getattr(node, "children", []))
+        children_block = f"<div class='entity-children'>{child_list}</div>" if child_list else ""
+        return (
+            "<div class='entity-card'>"
+            f"<p><strong>{escape(node.label)}</strong></p>"
+            f"<p>id: {escape(node.id)}</p>"
+            f"{children_block}"
+            "</div>"
         )
-        rows.append(f"<div class='entity-card'><p>{fields}</p></div>")
+
+    return (
+        "<div class='entity-section'>"
+        f"<h3>{escape(label)}</h3>"
+        f"{''.join(render_node(item) for item in item_list)}"
+        "</div>"
+    )
+
+
+def _render_unknown_list(label: str, items: Iterable[Unknown]) -> str:
+    item_list = list(items)
+    if not item_list:
+        return (
+            "<div class='entity-section'>"
+            f"<h3>{escape(label)}</h3><p class='muted'>No entries.</p>"
+            "</div>"
+        )
+    rows = []
+    for item in item_list:
+        rows.append(
+            "<div class='entity-card'>"
+            f"<p><strong>{escape(item.label)}</strong></p>"
+            f"<p>id: {escape(item.id)}<br/>visual_description: {escape(item.visual_description)}</p>"
+            "</div>"
+        )
     return (
         "<div class='entity-section'>"
         f"<h3>{escape(label)}</h3>"
@@ -105,9 +137,9 @@ def build_agent_a_report_html(
     issues = validate_agent_a_response(full_video_asset, response)
     issue_count = len(issues)
     total_entities = (
-        len(response.entity_registry.characters)
-        + len(response.entity_registry.key_objects)
-        + len(response.entity_registry.ambience_sources)
+        len(response.entity_registry.entities)
+        + len(response.entity_registry.ambience)
+        + len(response.entity_registry.unknowns)
     )
     usage = runtime_output.usage
 
@@ -301,17 +333,17 @@ def build_agent_a_report_html(
         <div class=\"label\">candidates_token_count</div><div>{usage.candidates_token_count}</div>
         <div class=\"label\">total_token_count</div><div>{usage.total_token_count}</div>
         <div class=\"label\">estimated_cost_usd</div><div>{runtime_output.estimated_cost_usd:.6f}</div>
-        <div class=\"label\">characters</div><div>{len(response.entity_registry.characters)}</div>
-        <div class=\"label\">key_objects</div><div>{len(response.entity_registry.key_objects)}</div>
-        <div class=\"label\">ambience_sources</div><div>{len(response.entity_registry.ambience_sources)}</div>
+        <div class=\"label\">entities</div><div>{len(response.entity_registry.entities)}</div>
+        <div class=\"label\">ambience</div><div>{len(response.entity_registry.ambience)}</div>
+        <div class=\"label\">unknowns</div><div>{len(response.entity_registry.unknowns)}</div>
         <div class=\"label\">total_entities</div><div>{total_entities}</div>
       </div>
     </div>
     <div class=\"card\">
       <h2>Agent A Entity Registry</h2>
-      {_render_entity_list('Characters', response.entity_registry.characters)}
-      {_render_entity_list('Key Objects', response.entity_registry.key_objects)}
-      {_render_entity_list('Ambience Sources', response.entity_registry.ambience_sources)}
+      {_render_entity_tree('Entities', response.entity_registry.entities)}
+      {_render_entity_tree('Ambience', response.entity_registry.ambience)}
+      {_render_unknown_list('Unknowns', response.entity_registry.unknowns)}
     </div>
     <div class=\"card\">
       <h2>Raw Gemini JSON Text</h2>

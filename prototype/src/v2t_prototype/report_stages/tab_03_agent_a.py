@@ -2,78 +2,45 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .common import (
-    load_stage_warnings,
-    render_badge,
-    render_summary_card,
-    render_video_or_placeholder,
-    render_warning_table,
-    resolve_video_src,
-    safe_text,
-    stage_output,
-)
+from .common import load_stage_warnings, render_summary_card, render_video_or_placeholder, render_warning_table, resolve_video_src, safe_text, stage_output
 
 
-def _render_characters(characters: list[dict]) -> str:
+def _render_entity_tree(label: str, items: list[dict]) -> str:
+    def render_node(item: dict) -> str:
+        children = item.get("children", [])
+        child_cards = "".join(render_node(child) for child in children if isinstance(child, dict))
+        children_block = f"<div style='margin-top:8px;padding-left:16px'>{child_cards}</div>" if child_cards else ""
+        return (
+            "<div class='entity-card'>"
+            f"<div><strong>{safe_text(item.get('label'))}</strong></div>"
+            f"<div class='mono truncate'>{safe_text(item.get('id'))}</div>"
+            f"{children_block}"
+            "</div>"
+        )
+
+    return (
+        "<div class='card'>"
+        f"<div class='section-title'><h3>{safe_text(label)}</h3><span class='badge badge-info'>{len(items)}</span></div>"
+        f"{''.join(render_node(item) for item in items if isinstance(item, dict))}"
+        "</div>"
+    )
+
+
+def _render_unknowns(unknowns: list[dict]) -> str:
     rows = "".join(
         "<tr>"
         f"<td class='mono truncate'>{safe_text(item.get('id'))}</td>"
         f"<td>{safe_text(item.get('label'))}</td>"
-        f"<td>{render_badge(str(item.get('audibility', 'inactive')), kind='audibility')}</td>"
         f"<td><div class='break-word'>{safe_text(item.get('visual_description'))}</div></td>"
         "</tr>"
-        for item in characters
+        for item in unknowns
     )
     return (
         "<div class='card'>"
-        f"<div class='section-title'><h3>Characters</h3><span class='badge badge-info'>{len(characters)}</span></div>"
+        f"<div class='section-title'><h3>Unknowns</h3><span class='badge badge-info'>{len(unknowns)}</span></div>"
         "<div class='table-wrap'><table><colgroup>"
-        "<col style='width:15%'><col style='width:20%'><col style='width:15%'><col style='width:50%'>"
-        "</colgroup><thead><tr><th>ID</th><th>Label</th><th>Audibility</th><th>Visual Description</th></tr></thead>"
-        f"<tbody>{rows}</tbody></table></div></div>"
-    )
-
-
-def _render_key_objects(key_objects: list[dict]) -> str:
-    rows = "".join(
-        "<tr>"
-        f"<td class='mono truncate'>{safe_text(item.get('id'))}</td>"
-        f"<td>{safe_text(item.get('label'))}</td>"
-        f"<td>{safe_text(item.get('material'))}</td>"
-        f"<td>{safe_text(item.get('surface'))}</td>"
-        f"<td>{render_badge(str(item.get('audibility', 'inactive')), kind='audibility')}</td>"
-        f"<td class='mono'>{safe_text(item.get('has_mechanism'))}</td>"
-        f"<td><div class='break-word'>{safe_text(item.get('visual_description'))}</div></td>"
-        "</tr>"
-        for item in key_objects
-    )
-    return (
-        "<div class='card'>"
-        f"<div class='section-title'><h3>KeyObjects</h3><span class='badge badge-info'>{len(key_objects)}</span></div>"
-        "<div class='table-wrap'><table><colgroup>"
-        "<col style='width:12%'><col style='width:18%'><col style='width:12%'><col style='width:12%'><col style='width:14%'><col style='width:10%'><col style='width:22%'>"
-        "</colgroup><thead><tr><th>ID</th><th>Label</th><th>Material</th><th>Surface</th><th>Audibility</th><th>Mechanism</th><th>Visual Description</th></tr></thead>"
-        f"<tbody>{rows}</tbody></table></div></div>"
-    )
-
-
-def _render_ambience(ambience_sources: list[dict]) -> str:
-    rows = "".join(
-        "<tr>"
-        f"<td class='mono truncate'>{safe_text(item.get('id'))}</td>"
-        f"<td>{safe_text(item.get('label'))}</td>"
-        f"<td><div class='break-word'>{safe_text(item.get('space_description'))}</div></td>"
-        f"<td>{safe_text(item.get('distance_profile'))}</td>"
-        f"<td><div class='break-word'>{safe_text(item.get('tonal_quality'))}</div></td>"
-        "</tr>"
-        for item in ambience_sources
-    )
-    return (
-        "<div class='card'>"
-        f"<div class='section-title'><h3>AmbienceSources</h3><span class='badge badge-info'>{len(ambience_sources)}</span></div>"
-        "<div class='table-wrap'><table><colgroup>"
-        "<col style='width:12%'><col style='width:18%'><col style='width:35%'><col style='width:15%'><col style='width:20%'>"
-        "</colgroup><thead><tr><th>ID</th><th>Label</th><th>Space Description</th><th>Distance</th><th>Tonal Quality</th></tr></thead>"
+        "<col style='width:18%'><col style='width:18%'><col style='width:64%'>"
+        "</colgroup><thead><tr><th>ID</th><th>Label</th><th>Visual Description</th></tr></thead>"
         f"<tbody>{rows}</tbody></table></div></div>"
     )
 
@@ -112,9 +79,9 @@ def render_tab(run_dir: Path, report_html_path: Path) -> str | None:
     )
     right = (
         "<div class='stack'>"
-        f"{_render_characters(entity_registry.get('characters', []))}"
-        f"{_render_key_objects(entity_registry.get('key_objects', []))}"
-        f"{_render_ambience(entity_registry.get('ambience_sources', []))}"
+        f"{_render_entity_tree('Entities', entity_registry.get('entities', []))}"
+        f"{_render_entity_tree('Ambience', entity_registry.get('ambience', []))}"
+        f"{_render_unknowns(entity_registry.get('unknowns', []))}"
         "</div>"
     )
     warnings = render_warning_table(load_stage_warnings(run_dir, "stage_03_agent_a"))
