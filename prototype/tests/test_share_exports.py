@@ -26,6 +26,9 @@ def _make_run_dir(tmp_path: Path) -> tuple[Path, Path]:
         encoding="utf-8",
     )
     (run_dir / "pipeline_report.html").write_text("<html>report</html>", encoding="utf-8")
+    clips_dir = run_dir / "stage_04_segment_prep" / "clips"
+    clips_dir.mkdir(parents=True, exist_ok=True)
+    (clips_dir / "CUT_001.mp4").write_text("clip-bytes", encoding="utf-8")
     return run_dir, video_path
 
 
@@ -50,5 +53,11 @@ def test_export_second_share_bundle_zips_video_and_report(tmp_path: Path):
     assert result.share_type == "second_share"
     assert result.output_path.name.endswith(".report_bundle.zip")
     with zipfile.ZipFile(result.output_path) as archive:
-        assert sorted(archive.namelist()) == [f"input{video_path.suffix.lower()}", "report.html"]
-        assert archive.read("report.html").decode("utf-8") == "<html>report</html>"
+        slug = f"{video_path.stem}__{run_dir.name}"
+        assert sorted(archive.namelist()) == [
+            f"{slug}/runs/run_001/pipeline_report.html",
+            f"{slug}/runs/run_001/stage_04_segment_prep/clips/CUT_001.mp4",
+            f"{slug}/videos/sample.mp4",
+        ]
+        assert archive.read(f"{slug}/runs/run_001/pipeline_report.html").decode("utf-8") == "<html>report</html>"
+        assert archive.read(f"{slug}/runs/run_001/stage_04_segment_prep/clips/CUT_001.mp4").decode("utf-8") == "clip-bytes"

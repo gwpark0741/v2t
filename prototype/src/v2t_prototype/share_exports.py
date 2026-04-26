@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
 import zipfile
 from dataclasses import dataclass
@@ -16,6 +17,8 @@ class ShareSource:
     video_path: Path
     final_output_path: Path
     report_path: Path
+    clip_paths: tuple[Path, ...]
+    bundle_root: Path
 
 
 @dataclass(frozen=True)
@@ -47,11 +50,18 @@ def _load_share_source(run_dir: Path) -> ShareSource:
         resolved_run_dir / "pipeline_report.html",
         label="pipeline report",
     )
+    clips_dir = resolved_run_dir / "stage_04_segment_prep" / "clips"
+    clip_paths = tuple(
+        sorted(path.resolve() for path in clips_dir.glob("*.mp4") if path.is_file())
+    )
+    bundle_root = Path(os.path.commonpath([str(resolved_run_dir), str(video_path)])).resolve()
     return ShareSource(
         run_dir=resolved_run_dir,
         video_path=video_path,
         final_output_path=final_output_path,
         report_path=report_path,
+        clip_paths=clip_paths,
+        bundle_root=bundle_root,
     )
 
 
@@ -73,9 +83,17 @@ def export_second_share_bundle(run_dir: Path, *, output_root: Path) -> ShareExpo
     output_dir = output_root.expanduser().resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
     bundle_path = output_dir / f"{_share_slug(source.run_dir, source.video_path)}.report_bundle.zip"
+    bundle_prefix = _share_slug(source.run_dir, source.video_path)
+
+    def _arcname(path: Path) -> str:
+        relative_path = path.resolve().relative_to(source.bundle_root)
+        return str(Path(bundle_prefix) / relative_path)
+
     with zipfile.ZipFile(bundle_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        archive.write(source.video_path, arcname=f"input{source.video_path.suffix.lower()}")
-        archive.write(source.report_path, arcname="report.html")
+        archive.write(source.video_path, arcname=_arcname(source.video_path))
+        archive.write(source.report_path, arcname=_arcname(source.report_path))
+        for clip_path in source.clip_paths:
+            archive.write(clip_path, arcname=_arcname(clip_path))
     return ShareExportResult(
         run_dir=source.run_dir,
         output_path=bundle_path,
@@ -104,7 +122,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     second_share = subparsers.add_parser(
         "second-share",
-        help="Create review bundle ZIP files that contain the source video and report.html.",
+        help="Create review bundle ZIP files that preserve the report, source video, and segment clip relative paths.",
     )
     second_share.add_argument("run_dirs", nargs="+", type=Path, help="Run directories under runs/<run_id>.")
     second_share.add_argument("--output-root", required=True, type=Path, help="Directory for second-share ZIP bundles.")
