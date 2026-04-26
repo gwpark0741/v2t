@@ -54,7 +54,9 @@ def test_run_pipeline_for_video_executes_all_stages_and_generates_report(tmp_pat
     monkeypatch.setattr(
         pipeline_automation,
         "prepare_full_video_asset",
-        lambda result, client=None: calls.append(f"stage2:{client is fake_client}") or full_video_asset,
+        lambda result, client=None, ffmpeg_bin=None: calls.append(
+            f"stage2:{client is fake_client}:{ffmpeg_bin}"
+        ) or full_video_asset,
     )
     monkeypatch.setattr(
         pipeline_automation,
@@ -135,7 +137,7 @@ def test_run_pipeline_for_video_executes_all_stages_and_generates_report(tmp_pat
         "stage1:sample.mp4",
         "warnings",
         "write_stage1",
-        "stage2:True",
+        "stage2:True:ffmpeg",
         "write_stage2",
         "stage3:agent-a-model",
         "write_stage3",

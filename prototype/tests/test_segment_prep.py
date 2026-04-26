@@ -126,6 +126,8 @@ def test_run_segment_prep_uses_authoritative_cut_interval(tmp_path: Path, monkey
         "-t",
         "2.500",
     ]
+    assert "-an" in recorded_commands[0]
+    assert "-c:a" not in recorded_commands[0]
 
 
 def test_run_segment_prep_records_skipped_cut_and_warning(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -186,9 +188,9 @@ def test_run_segment_prep_raises_when_no_clips_succeed(tmp_path: Path, monkeypat
 
 
 def test_resolve_ffmpeg_bin_falls_back_to_imageio_binary(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr("v2t_prototype.segment_prep.which", lambda _: None)
+    monkeypatch.setattr("v2t_prototype.ffmpeg_utils.which", lambda _: None)
     monkeypatch.setattr(
-        "v2t_prototype.segment_prep.imageio_ffmpeg.get_ffmpeg_exe",
+        "v2t_prototype.ffmpeg_utils.imageio_ffmpeg.get_ffmpeg_exe",
         lambda: "/tmp/uv-ffmpeg",
     )
 

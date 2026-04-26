@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 import subprocess
-from shutil import which
 from mimetypes import guess_type
 from pathlib import Path
 from typing import Optional
 
-import imageio_ffmpeg
 from google import genai
 
+from .ffmpeg_utils import resolve_ffmpeg_bin as _resolve_ffmpeg_bin
 from .gemini_client import (
     create_gemini_client,
     get_uploaded_file_name,
@@ -47,20 +46,13 @@ def _build_ffmpeg_command(
         "veryfast",
         "-crf",
         "18",
-        "-c:a",
-        "aac",
+        "-an",
         str(output_path),
     ]
 
 
 def resolve_ffmpeg_bin(ffmpeg_bin: str = "ffmpeg") -> str:
-    """Resolve an ffmpeg executable path, preferring the system binary and falling back to the uv-managed one."""
-    discovered = which(ffmpeg_bin)
-    if discovered:
-        return discovered
-    if ffmpeg_bin != "ffmpeg":
-        return ffmpeg_bin
-    return imageio_ffmpeg.get_ffmpeg_exe()
+    return _resolve_ffmpeg_bin(ffmpeg_bin)
 
 
 def run_segment_prep(

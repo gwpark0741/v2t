@@ -95,9 +95,16 @@ def test_run_preprocessing_returns_metadata_and_cuts(tmp_path: Path):
         state=genai_types.FileState.ACTIVE,
     )
 
+    def fake_ffmpeg_run(cmd, check, capture_output, text):
+        Path(cmd[-1]).write_bytes(b"silent-video")
+        return SimpleNamespace(returncode=0)
+
     with patch("v2t_prototype.preprocessing.upload_video_file", return_value=uploaded_file), patch(
         "v2t_prototype.preprocessing.wait_for_uploaded_file_active", return_value=uploaded_file
-    ), patch("v2t_prototype.preprocessing.guess_type", return_value=("video/mp4", None)):
+    ), patch("v2t_prototype.preprocessing.guess_type", return_value=("video/mp4", None)), patch(
+        "v2t_prototype.ffmpeg_utils.subprocess.run",
+        side_effect=fake_ffmpeg_run,
+    ), patch("v2t_prototype.ffmpeg_utils.resolve_ffmpeg_bin", return_value="ffmpeg"):
         result = run_preprocessing(
             video_path,
             adaptive_threshold=1.0,
@@ -125,20 +132,36 @@ def test_run_preprocessing_uploads_video_and_returns_video_url(tmp_path: Path):
         uri="gs://bucket/uploaded_video.mp4",
         state=genai_types.FileState.ACTIVE,
     )
+    uploaded_paths: list[Path] = []
 
-    with patch("v2t_prototype.preprocessing.upload_video_file", return_value=uploaded_file) as upload_mock, patch(
+    def fake_upload(runtime_client, path: Path):
+        assert runtime_client is client
+        uploaded_paths.append(Path(path))
+        return uploaded_file
+
+    def fake_ffmpeg_run(cmd, check, capture_output, text):
+        Path(cmd[-1]).write_bytes(b"silent-video")
+        return SimpleNamespace(returncode=0)
+
+    with patch("v2t_prototype.preprocessing.upload_video_file", side_effect=fake_upload), patch(
         "v2t_prototype.preprocessing.wait_for_uploaded_file_active", return_value=uploaded_file
     ) as wait_mock, patch("v2t_prototype.preprocessing.guess_type", return_value=("video/mp4", None)):
-        result = run_preprocessing(
-            video_path,
-            adaptive_threshold=1.0,
-            min_scene_len=5,
-            window_width=2,
-            min_content_val=5.0,
-            client=client,
-        )
+        with patch(
+            "v2t_prototype.ffmpeg_utils.subprocess.run",
+            side_effect=fake_ffmpeg_run,
+        ), patch("v2t_prototype.ffmpeg_utils.resolve_ffmpeg_bin", return_value="ffmpeg"):
+            result = run_preprocessing(
+                video_path,
+                adaptive_threshold=1.0,
+                min_scene_len=5,
+                window_width=2,
+                min_content_val=5.0,
+                client=client,
+            )
 
-    upload_mock.assert_called_once_with(client, video_path)
+    assert len(uploaded_paths) == 1
+    assert uploaded_paths[0] != video_path
+    assert uploaded_paths[0].suffix == video_path.suffix
     wait_mock.assert_called_once_with(client, uploaded_file)
     assert result.video_url == "gs://bucket/uploaded_video.mp4"
     assert result.video_mime_type == "video/mp4"
@@ -186,16 +209,31 @@ def test_prepare_full_video_asset_uploads_and_returns_url_and_mime(tmp_path: Pat
         uri="gs://bucket/preprocessing_asset.mp4",
         state=genai_types.FileState.ACTIVE,
     )
+    uploaded_paths: list[Path] = []
 
-    with patch("v2t_prototype.preprocessing.upload_video_file", return_value=uploaded_file) as upload_mock, patch(
+    def fake_upload(runtime_client, path: Path):
+        assert runtime_client is client
+        uploaded_paths.append(Path(path))
+        return uploaded_file
+
+    def fake_ffmpeg_run(cmd, check, capture_output, text):
+        Path(cmd[-1]).write_bytes(b"silent-video")
+        return SimpleNamespace(returncode=0)
+
+    with patch("v2t_prototype.preprocessing.upload_video_file", side_effect=fake_upload), patch(
         "v2t_prototype.preprocessing.wait_for_uploaded_file_active", return_value=uploaded_file
-    ) as wait_mock:
+    ) as wait_mock, patch(
+        "v2t_prototype.ffmpeg_utils.subprocess.run",
+        side_effect=fake_ffmpeg_run,
+    ), patch("v2t_prototype.ffmpeg_utils.resolve_ffmpeg_bin", return_value="ffmpeg"):
         result = prepare_full_video_asset(
             local=local,
             client=client,
         )
 
-    upload_mock.assert_called_once_with(client, video_path)
+    assert len(uploaded_paths) == 1
+    assert uploaded_paths[0] != video_path
+    assert uploaded_paths[0].suffix == video_path.suffix
     wait_mock.assert_called_once_with(client, uploaded_file)
     assert isinstance(result, FullVideoAssetResult)
     assert result.video_url == "gs://bucket/preprocessing_asset.mp4"

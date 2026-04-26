@@ -152,7 +152,11 @@ def run_pipeline_for_video(
         )
 
         current_stage = FULL_VIDEO_ASSET_STAGE_DIR
-        full_video_asset = prepare_full_video_asset(local, client=runtime_client)
+        full_video_asset = prepare_full_video_asset(
+            local,
+            client=runtime_client,
+            ffmpeg_bin=ffmpeg_bin,
+        )
         write_full_video_asset_artifacts(
             full_video_asset,
             runs_dir=runs_dir,

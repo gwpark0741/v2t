@@ -10,6 +10,7 @@ from google import genai
 from scenedetect import SceneManager, open_video
 from scenedetect.detectors import AdaptiveDetector
 
+from .ffmpeg_utils import temporary_silent_video
 from .gemini_client import (
     create_gemini_client,
     get_uploaded_file_name,
@@ -144,6 +145,7 @@ def run_preprocessing(
     window_width: int = 2,
     min_content_val: float = 15.0,
     client: Optional[genai.Client] = None,
+    ffmpeg_bin: str = "ffmpeg",
 ) -> PreprocessingResult:
     """전처리 엔트리포인트입니다.
 
@@ -159,6 +161,7 @@ def run_preprocessing(
     full_video_asset = prepare_full_video_asset(
         local=local,
         client=client,
+        ffmpeg_bin=ffmpeg_bin,
     )
     return PreprocessingResult(
         video_metadata=local.video_metadata,
@@ -200,12 +203,14 @@ def prepare_full_video_asset(
     local: LocalPreprocessingResult,
     *,
     client: Optional[genai.Client] = None,
+    ffmpeg_bin: str = "ffmpeg",
 ) -> FullVideoAssetResult:
     """전체 영상을 업로드하고 canonical Stage 02 결과를 반환합니다."""
     runtime_client = client or create_gemini_client()
     video_path = Path(local.video_path)
-    uploaded_file = upload_video_file(runtime_client, video_path)
-    uploaded_file = wait_for_uploaded_file_active(runtime_client, uploaded_file)
+    with temporary_silent_video(video_path, ffmpeg_bin=ffmpeg_bin) as silent_video_path:
+        uploaded_file = upload_video_file(runtime_client, silent_video_path)
+        uploaded_file = wait_for_uploaded_file_active(runtime_client, uploaded_file)
     video_url = get_uploaded_video_url(uploaded_file)
     gemini_file_name = get_uploaded_file_name(uploaded_file)
     upload_timestamp_utc = (
