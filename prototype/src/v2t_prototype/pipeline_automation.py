@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -264,13 +265,17 @@ def run_pipeline_for_inputs(
     agent_a_model: str = DEFAULT_AGENT_A_MODEL,
     agent_b_model: str = DEFAULT_AGENT_B_MODEL,
     track_judge_model: str = DEFAULT_TRACK_JUDGE_MODEL,
+    max_video_concurrency: int = 1,
     max_agent_b_concurrency: int = 5,
     max_agent_b_retries: int = 2,
     stop_on_error: bool = False,
 ) -> list[PipelineAutomationResult]:
-    results: list[PipelineAutomationResult] = []
-    for video_path in discover_video_paths(inputs, recursive=recursive):
-        result = run_pipeline_for_video(
+    discovered_paths = discover_video_paths(inputs, recursive=recursive)
+    if max_video_concurrency < 1:
+        raise ValueError("max_video_concurrency must be >= 1")
+
+    def _run(video_path: Path) -> PipelineAutomationResult:
+        return run_pipeline_for_video(
             video_path,
             runs_dir=runs_dir,
             ffmpeg_bin=ffmpeg_bin,
@@ -281,10 +286,18 @@ def run_pipeline_for_inputs(
             max_agent_b_retries=max_agent_b_retries,
             stop_on_error=stop_on_error,
         )
-        results.append(result)
-        if stop_on_error and result.status == "failed":
-            break
-    return results
+
+    if stop_on_error or max_video_concurrency == 1 or len(discovered_paths) <= 1:
+        results: list[PipelineAutomationResult] = []
+        for video_path in discovered_paths:
+            result = _run(video_path)
+            results.append(result)
+            if stop_on_error and result.status == "failed":
+                break
+        return results
+
+    with ThreadPoolExecutor(max_workers=max_video_concurrency) as executor:
+        return list(executor.map(_run, discovered_paths))
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -306,6 +319,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--track-judge-model",
         default=DEFAULT_TRACK_JUDGE_MODEL,
         help="Gemini model for Stage 06 track grouping.",
+    )
+    parser.add_argument(
+        "--max-video-concurrency",
+        type=int,
+        default=1,
+        help="Maximum number of videos to process in parallel during batch execution.",
     )
     parser.add_argument(
         "--max-agent-b-concurrency",
@@ -334,6 +353,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         agent_a_model=args.agent_a_model,
         agent_b_model=args.agent_b_model,
         track_judge_model=args.track_judge_model,
+        max_video_concurrency=args.max_video_concurrency,
         max_agent_b_concurrency=args.max_agent_b_concurrency,
         max_agent_b_retries=args.max_agent_b_retries,
         stop_on_error=args.stop_on_error,

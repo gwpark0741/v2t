@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from v2t_prototype import pipeline_automation
 
 
@@ -196,3 +198,51 @@ def test_run_pipeline_for_video_records_failure_and_returns_failed_result(tmp_pa
         "video_path": str(video_path.resolve()),
         "message": "stage 01 exploded",
     }
+
+
+def test_run_pipeline_for_inputs_supports_batch_video_concurrency(tmp_path: Path, monkeypatch):
+    video_a = tmp_path / "a.mp4"
+    video_b = tmp_path / "b.mp4"
+    video_a.write_text("a", encoding="utf-8")
+    video_b.write_text("b", encoding="utf-8")
+    seen: list[str] = []
+
+    def fake_run_pipeline_for_video(video_path: Path, **kwargs):
+        seen.append(f"{video_path.name}:{kwargs['ffmpeg_bin']}:{kwargs['max_agent_b_concurrency']}")
+        return pipeline_automation.PipelineAutomationResult(
+            video_path=video_path,
+            run_id=video_path.stem,
+            run_dir=tmp_path / "runs" / video_path.stem,
+            status="completed",
+        )
+
+    monkeypatch.setattr(
+        pipeline_automation,
+        "run_pipeline_for_video",
+        fake_run_pipeline_for_video,
+    )
+
+    results = pipeline_automation.run_pipeline_for_inputs(
+        [video_a, video_b],
+        runs_dir=tmp_path / "runs",
+        ffmpeg_bin="custom-ffmpeg",
+        max_video_concurrency=2,
+        max_agent_b_concurrency=7,
+    )
+
+    assert [result.video_path.name for result in results] == ["a.mp4", "b.mp4"]
+    assert sorted(seen) == [
+        "a.mp4:custom-ffmpeg:7",
+        "b.mp4:custom-ffmpeg:7",
+    ]
+
+
+def test_run_pipeline_for_inputs_rejects_invalid_batch_video_concurrency(tmp_path: Path):
+    video_path = tmp_path / "sample.mp4"
+    video_path.write_text("video", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="max_video_concurrency must be >= 1"):
+        pipeline_automation.run_pipeline_for_inputs(
+            [video_path],
+            max_video_concurrency=0,
+        )
