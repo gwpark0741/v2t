@@ -1,15 +1,13 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal, List, Optional, Union, Dict, Any, Generic, TypeVar
+from typing import Any, Dict, Generic, List, Literal, Optional, TypeVar, Union
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_serializer, model_validator
 
 
-EntityAudibility = Literal["audible", "likely_audible", "visual_only", "inactive"]
-InteractionType = Literal["sfx", "voice", "ambience"]
-TrackType = Literal["sfx", "voice", "ambience"]
-DistanceProfile = Literal["near", "mid", "far"]
+InteractionType = Literal["sfx", "ambience"]
+TrackType = Literal["sfx", "ambience"]
 WarningSeverity = Literal["error", "warning", "info"]
 StageName = Literal[
     "stage_01_local_preprocessing",
@@ -248,42 +246,47 @@ class ContinuousEvent(BaseModel):
         return self
 
 
-class Character(BaseModel):
+class Entity_Child(BaseModel):
     id: str
     label: str
-    visual_description: str
-    entry_exit_intervals: List[Interval]
-    audibility: EntityAudibility
 
     model_config = ConfigDict(extra="forbid")
 
 
-class KeyObject(BaseModel):
+class Entity(BaseModel):
     id: str
     label: str
-    visual_description: str
-    material: str
-    surface: str
-    has_mechanism: bool
-    audibility: EntityAudibility
+    children: List["Entity_Child"] = Field(default_factory=list)
+
+    model_config = ConfigDict(extra="forbid")
+
+    @model_serializer(mode="wrap")
+    def serialize_model(self, serializer):
+        payload = serializer(self)
+        if not self.children:
+            payload.pop("children", None)
+        return payload
+
+
+class Ambience(BaseModel):
+    id: str
+    label: str
 
     model_config = ConfigDict(extra="forbid")
 
 
-class AmbienceSource(BaseModel):
+class Unknown(BaseModel):
     id: str
     label: str
-    space_description: str
-    distance_profile: DistanceProfile
-    tonal_quality: str
+    visual_description: str
 
     model_config = ConfigDict(extra="forbid")
 
 
 class EntityRegistry(BaseModel):
-    characters: List[Character] = Field(default_factory=list)
-    key_objects: List[KeyObject] = Field(default_factory=list)
-    ambience_sources: List[AmbienceSource] = Field(default_factory=list)
+    entities: List[Entity] = Field(default_factory=list)
+    ambience: List[Ambience] = Field(default_factory=list)
+    unknowns: List[Unknown] = Field(default_factory=list)
 
     model_config = ConfigDict(extra="forbid")
 
@@ -313,7 +316,7 @@ class Action(BaseModel):
     sound_description: str
     observed_visual_description: str
     event: Union[OnsetEvent, ContinuousEvent]
-    boundary_flag: bool
+    boundary_flag: bool = False
 
     model_config = ConfigDict(extra="forbid")
 
@@ -447,3 +450,5 @@ class AgentCResult(BaseModel):
     estimated_llm_cost_usd: float = Field(default=0.0, ge=0.0)
 
     model_config = ConfigDict(extra="forbid")
+
+Entity.model_rebuild()

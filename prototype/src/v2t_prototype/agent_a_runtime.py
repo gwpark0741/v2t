@@ -14,10 +14,12 @@ from .models import AgentARequest, AgentAResponse, FullVideoAssetResult, TokenUs
 
 
 DEFAULT_AGENT_A_SYSTEM_PROMPT = (
-    "You are Agent A in a video-to-sound metadata pipeline.\n"
-    "Use the uploaded full video as the primary source of truth.\n"
-    "Do not change cut boundaries.\n"
-    "Return only a JSON object that matches the provided schema."
+    "You are an expert in video analysis for sound generation.\n"
+    "Watch the full video and build a hierarchical entity registry for downstream sound-action mapping.\n"
+    "Base all decisions on visual information only. Do not infer from audio.\n"
+    "Hierarchy is strictly 2 levels: entity -> child.\n"
+    "Exclude all mouth/throat-produced vocalization sources.\n"
+    "Return valid JSON only. No text outside the JSON block."
 )
 
 
@@ -49,12 +51,59 @@ class AgentARuntimeOutput(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 
+class _AgentAEntityChildSchema(BaseModel):
+    id: str
+    label: str
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class _AgentAEntitySchema(BaseModel):
+    id: str
+    label: str
+    children: list[_AgentAEntityChildSchema] = Field(default_factory=list)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class _AgentAAmbienceSchema(BaseModel):
+    id: str
+    label: str
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class _AgentAUnknownSchema(BaseModel):
+    id: str
+    label: str
+    visual_description: str
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class _AgentAEntityRegistrySchema(BaseModel):
+    entities: list[_AgentAEntitySchema]
+    ambience: list[_AgentAAmbienceSchema]
+    unknowns: list[_AgentAUnknownSchema]
+
+    model_config = ConfigDict(extra="forbid")
+
+
 def _build_agent_a_prompt(request: AgentARequest, prompt_header: str) -> str:
     return (
         f"{prompt_header}\n\n"
-        "Task:\n"
-        "1) Build entity_registry with characters, key_objects, ambience_sources.\n"
-        "2) Keep all IDs deterministic and prefixed as char_/obj_/amb_.\n\n"
+        "Entities\n\n"
+        "An entity is a scene-relevant object, person, group, or environmental source\n"
+        "that can produce sound or own sound-producing sub-entities.\n\n"
+        "Children represent acoustically distinct sub-sources that would each become\n"
+        "an independent sound track downstream.\n"
+        "Create children only when genuinely useful.\n\n"
+        "Special Cases\n\n"
+        "Ambience entries belong in the ambience array and never have children.\n"
+        "Unknown entries belong in the unknowns array with a visual_description.\n"
+        "Unknown IDs must follow unknown_1, unknown_2, ...\n"
+        "Use snake_case IDs and keep them globally unique.\n"
+        "Omit the children field entirely for childless entities.\n\n"
         "Authoritative video metadata:\n"
         f"- fps: {request.video_metadata.fps}\n"
         f"- duration_seconds: {request.video_metadata.duration_seconds}\n"
@@ -65,7 +114,7 @@ def _build_agent_a_prompt(request: AgentARequest, prompt_header: str) -> str:
 def _build_generation_config() -> types.GenerateContentConfig:
     return types.GenerateContentConfig(
         response_mime_type="application/json",
-        response_json_schema=AgentAResponse.model_json_schema(),
+        response_json_schema=_AgentAEntityRegistrySchema.model_json_schema(),
     )
 
 
@@ -103,7 +152,8 @@ def run_agent_a_runtime(
         raise AgentAResponseParseError("Gemini response did not include response.text")
 
     try:
-        parsed_response = AgentAResponse.model_validate_json(raw_response_text)
+        entity_registry = _AgentAEntityRegistrySchema.model_validate_json(raw_response_text)
+        parsed_response = AgentAResponse(entity_registry=entity_registry.model_dump())
     except ValidationError as exc:
         raise AgentAResponseParseError("Failed to parse Agent A response JSON") from exc
 
