@@ -8,17 +8,6 @@ from .track_judge import DEFAULT_TRACK_JUDGE_MODEL, TrackJudge
 from .validation import validate_pipeline_result
 
 
-def _build_source_entity_kind_by_id(entity_registry: EntityRegistry) -> dict[str, str]:
-    source_entity_kind_by_id: dict[str, str] = {}
-    for character in entity_registry.characters:
-        source_entity_kind_by_id[character.id] = "Character"
-    for key_object in entity_registry.key_objects:
-        source_entity_kind_by_id[key_object.id] = "KeyObject"
-    for ambience in entity_registry.ambience_sources:
-        source_entity_kind_by_id[ambience.id] = "AmbienceSource"
-    return source_entity_kind_by_id
-
-
 def _warning_from_validation_issue(issue: str) -> WarningItem:
     if issue.startswith("duplicate track_id "):
         track_id = issue.removeprefix("duplicate track_id ").strip()
@@ -55,6 +44,7 @@ def run_agent_c(
     flash_client: Any | None = None,
     flash_model: str = DEFAULT_TRACK_JUDGE_MODEL,
 ) -> AgentCResult:
+    _ = entity_registry
     actions = [
         action
         for cut_output in agent_b_all_cuts.cut_outputs
@@ -63,7 +53,6 @@ def run_agent_c(
     track_judge = TrackJudge(flash_client=flash_client, model=flash_model)
     pipeline_result = synthesize_tracks(
         actions,
-        source_entity_kind_by_id=_build_source_entity_kind_by_id(entity_registry),
         track_judge=track_judge,
     )
 

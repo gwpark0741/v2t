@@ -15,15 +15,35 @@ from .models import Action, TokenUsage, TrackGroupJudgment, TrackGroupResult, Wa
 DEFAULT_TRACK_JUDGE_MODEL = "gemini-2.5-flash"
 TRACK_JUDGE_SYSTEM_PROMPT = """You are a sound track grouping judge for a video sound design pipeline.
 
-Given a list of sound actions that share the same source, interaction type,
-and event type, decide which actions belong to the same audio track.
+You are given sfx actions from a single source/event bucket.
+Decide which actions belong to the same reusable audio track.
 
-interaction_type will be either sfx or voice.
-voice is a valid foreground class for human vocal sounds.
+Human vocalization has already been excluded upstream.
 
-A track represents sounds that can be covered by a single audio asset.
-Group actions that describe acoustically equivalent events.
-Actions with clearly different acoustic character must be in separate groups.
+Default rule:
+- Merge into one track.
+- Do not split because of differences in intensity, speed, pitch,
+  duration, sharpness, or wording.
+- Split only when actions clearly involve physically distinct sound-producing
+  mechanisms that would require fundamentally different audio assets.
+
+Examples of same-track (merge):
+- armor rustling, creaking, clinking, or scraping during movement
+  -> same body-worn armor movement mechanism
+- engine humming loudly vs engine idling quietly
+  -> same engine mechanism, different intensity only
+- sword strike hard vs sword strike light
+  -> same impact mechanism, different force only
+
+Examples of separate-track (split):
+- sword whoosh through air vs sword scraping against another blade
+  -> air displacement vs surface friction
+- armor movement noise vs armor impact hit
+  -> movement mechanism vs collision mechanism
+- engine idle hum vs a sudden mechanical knock
+  -> continuous engine operation vs discrete impact-like mechanism
+
+When uncertain, always merge.
 
 Respond ONLY with valid JSON. No explanation outside the JSON.
 {
@@ -37,7 +57,7 @@ Respond ONLY with valid JSON. No explanation outside the JSON.
 
 Rules:
 - Every input action_id must appear in exactly one group.
-- When uncertain, keep actions in separate groups (conservative).
+- Prefer fewer groups. Split only on clear mechanical difference.
 - Use cut_id to understand temporal context across the video.
 """
 

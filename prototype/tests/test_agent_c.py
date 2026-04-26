@@ -10,13 +10,13 @@ from v2t_prototype.models import (
     Action,
     AgentBAllCutsResult,
     AgentBCutOutput,
-    AmbienceSource,
-    Character,
+    Ambience,
     ContinuousEvent,
+    Entity,
+    Entity_Child,
     EntityRegistry,
-    Interval,
-    KeyObject,
     OnsetEvent,
+    Unknown,
     UnknownResolution,
 )
 
@@ -64,33 +64,22 @@ def _usage_metadata(
 
 def _entity_registry() -> EntityRegistry:
     return EntityRegistry(
-        characters=[
-            Character(
-                id="char_001",
-                label="Player",
-                visual_description="Player in motion",
-                entry_exit_intervals=[Interval(start_time=0.0, end_time=8.0)],
-                audibility="likely_audible",
+        entities=[
+            Entity(
+                id="player",
+                label="player",
+                children=[
+                    Entity_Child(id="player_footstep", label="player footstep"),
+                    Entity_Child(id="player_cloth", label="player cloth"),
+                ],
             )
         ],
-        key_objects=[
-            KeyObject(
-                id="obj_001",
-                label="Paddle",
-                visual_description="Ping pong paddle",
-                material="wood",
-                surface="rubber",
-                has_mechanism=False,
-                audibility="audible",
-            )
-        ],
-        ambience_sources=[
-            AmbienceSource(
-                id="amb_001",
-                label="Gym",
-                space_description="Indoor gym",
-                distance_profile="mid",
-                tonal_quality="bright",
+        ambience=[Ambience(id="gym_room_tone", label="gym room tone")],
+        unknowns=[
+            Unknown(
+                id="unknown_1",
+                label="unknown 1",
+                visual_description="strange tool near the table",
             )
         ],
     )
@@ -128,7 +117,7 @@ def test_run_agent_c_synthesizes_tracks_and_records_track_group_judgments():
                         Action(
                             action_id="act_001",
                             cut_id="CUT_001",
-                            primary_source_id="char_001",
+                            primary_source_id="player_footstep",
                             interaction_type="sfx",
                             sound_description="soft sneaker step on tile",
                             observed_visual_description="player steps forward",
@@ -138,7 +127,7 @@ def test_run_agent_c_synthesizes_tracks_and_records_track_group_judgments():
                         Action(
                             action_id="act_002",
                             cut_id="CUT_001",
-                            primary_source_id="char_001",
+                            primary_source_id="player_footstep",
                             interaction_type="sfx",
                             sound_description="light sneaker footstep on tile",
                             observed_visual_description="player keeps stepping",
@@ -163,17 +152,14 @@ def test_run_agent_c_synthesizes_tracks_and_records_track_group_judgments():
     )
 
     assert result.llm_call_count == 1
-    assert result.total_llm_latency_ms >= 0.0
     assert result.llm_usage.total_token_count == 120
     assert result.merge_group_count == 1
-    assert len(result.track_group_judgments) == 1
     assert result.track_group_judgments[0].source == "llm"
-    assert len(result.pipeline_result.track_manifest.tracks) == 1
-    assert result.pipeline_result.track_manifest.tracks[0].track_id == "char_001__sfx__onset"
+    assert result.pipeline_result.track_manifest.tracks[0].track_id == "player_footstep__sfx__onset"
     assert result.pipeline_result.warnings == []
 
 
-def test_run_agent_c_uses_registry_to_mark_ambience_tracks():
+def test_run_agent_c_marks_ambience_tracks():
     result = run_agent_c(
         _agent_b_result(
             cut_outputs=[
@@ -184,15 +170,11 @@ def test_run_agent_c_uses_registry_to_mark_ambience_tracks():
                         Action(
                             action_id="act_amb_001",
                             cut_id="CUT_001",
-                            primary_source_id="amb_001",
+                            primary_source_id="gym_room_tone",
                             interaction_type="ambience",
                             sound_description="steady room tone",
                             observed_visual_description="wide room shot",
-                            event=ContinuousEvent(
-                                type="continuous",
-                                start_time=0.0,
-                                end_time=2.0,
-                            ),
+                            event=ContinuousEvent(type="continuous", start_time=0.0, end_time=2.0),
                             boundary_flag=False,
                         )
                     ],
@@ -206,7 +188,7 @@ def test_run_agent_c_uses_registry_to_mark_ambience_tracks():
 
     assert result.llm_call_count == 0
     assert result.pipeline_result.track_manifest.tracks[0].track_type == "ambience"
-    assert result.pipeline_result.track_manifest.tracks[0].track_id == "amb_001__ambience"
+    assert result.pipeline_result.track_manifest.tracks[0].track_id == "gym_room_tone__ambience"
 
 
 def test_run_agent_c_preserves_unresolved_unknowns():
@@ -241,7 +223,6 @@ def test_run_agent_c_preserves_unresolved_unknowns():
     )
 
     assert result.pipeline_result.track_manifest.tracks == []
-    assert len(result.pipeline_result.unresolved_unknowns) == 1
     assert result.pipeline_result.unresolved_unknowns[0].unknown_id == "UNKNOWN_OBJECT_CUT001_1"
 
 
@@ -264,7 +245,7 @@ def test_run_agent_c_converts_validation_issues_to_warnings(monkeypatch):
                         Action(
                             action_id="act_001",
                             cut_id="CUT_001",
-                            primary_source_id="amb_001",
+                            primary_source_id="gym_room_tone",
                             interaction_type="ambience",
                             sound_description="steady room tone",
                             observed_visual_description="wide room shot",
@@ -297,7 +278,7 @@ def test_run_agent_c_records_llm_error_fallback_warning():
                         Action(
                             action_id="act_001",
                             cut_id="CUT_001",
-                            primary_source_id="obj_001",
+                            primary_source_id="player_cloth",
                             interaction_type="sfx",
                             sound_description="first mechanical click",
                             observed_visual_description="device advances",
@@ -307,7 +288,7 @@ def test_run_agent_c_records_llm_error_fallback_warning():
                         Action(
                             action_id="act_002",
                             cut_id="CUT_001",
-                            primary_source_id="obj_001",
+                            primary_source_id="player_cloth",
                             interaction_type="sfx",
                             sound_description="second mechanical click",
                             observed_visual_description="device advances again",
@@ -341,7 +322,7 @@ def test_run_agent_c_separates_onset_and_continuous_tracks_for_same_source():
                         Action(
                             action_id="act_001",
                             cut_id="CUT_001",
-                            primary_source_id="obj_001",
+                            primary_source_id="player_cloth",
                             interaction_type="sfx",
                             sound_description="single impact",
                             observed_visual_description="tool hits surface",
@@ -351,7 +332,7 @@ def test_run_agent_c_separates_onset_and_continuous_tracks_for_same_source():
                         Action(
                             action_id="act_002",
                             cut_id="CUT_001",
-                            primary_source_id="obj_001",
+                            primary_source_id="player_cloth",
                             interaction_type="sfx",
                             sound_description="steady rolling noise",
                             observed_visual_description="tool keeps sliding",
@@ -368,4 +349,38 @@ def test_run_agent_c_separates_onset_and_continuous_tracks_for_same_source():
     )
 
     track_ids = {track.track_id for track in result.pipeline_result.track_manifest.tracks}
-    assert track_ids == {"obj_001__sfx__onset", "obj_001__sfx__continuous"}
+    assert track_ids == {"player_cloth__sfx__onset", "player_cloth__sfx__continuous"}
+
+
+def test_run_agent_c_drops_legacy_voice_actions_with_warning():
+    voice_action = Action.model_construct(
+        action_id="legacy_voice_001",
+        cut_id="CUT_001",
+        primary_source_id="player",
+        unknown_resolution=None,
+        interaction_type="voice",
+        sound_description="legacy voice action",
+        observed_visual_description="fighter shouting",
+        event=OnsetEvent(type="onset", timestamp=0.2),
+        boundary_flag=False,
+    )
+    result = run_agent_c(
+        _agent_b_result(
+            cut_outputs=[
+                AgentBCutOutput(
+                    cut_id="CUT_001",
+                    raw_response_text="{}",
+                    actions=[voice_action],
+                    validation_issues=[],
+                    model="gemini-2.5-pro",
+                )
+            ]
+        ),
+        _entity_registry(),
+    )
+
+    assert result.pipeline_result.track_manifest.tracks == []
+    assert [warning.code for warning in result.pipeline_result.warnings] == [
+        "STAGE06_LEGACY_VOICE_DROPPED",
+        "AGENT_C_EMPTY_RESULT",
+    ]

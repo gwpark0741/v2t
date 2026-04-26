@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-import pytest
-
 from v2t_prototype.models import Action, OnsetEvent
 from v2t_prototype.track_judge import TrackJudge
 
@@ -52,7 +50,7 @@ def _action(action_id: str, *, cut_id: str = "CUT_001", sound_description: str =
     return Action(
         action_id=action_id,
         cut_id=cut_id,
-        primary_source_id="char_001",
+        primary_source_id="fighter_footstep",
         interaction_type="sfx",
         sound_description=sound_description,
         observed_visual_description="player moves forward",
@@ -64,7 +62,7 @@ def _action(action_id: str, *, cut_id: str = "CUT_001", sound_description: str =
 def test_track_judge_single_action_short_circuits_without_llm():
     judge = TrackJudge(flash_client=_FakeClient())
 
-    groups = judge.judge_group([_action("act_001")], "char_001", "sfx", "onset")
+    groups = judge.judge_group([_action("act_001")], "fighter_footstep", "sfx", "onset")
 
     assert len(groups) == 1
     assert [action.action_id for action in groups[0]] == ["act_001"]
@@ -83,7 +81,7 @@ def test_track_judge_payload_includes_cut_id_and_returns_llm_groups():
 
     groups = judge.judge_group(
         [_action("act_001", cut_id="CUT_001"), _action("act_002", cut_id="CUT_003")],
-        "char_001",
+        "fighter_footstep",
         "sfx",
         "onset",
     )
@@ -96,15 +94,17 @@ def test_track_judge_payload_includes_cut_id_and_returns_llm_groups():
     assert '"cut_id": "CUT_001"' in payload
     assert '"cut_id": "CUT_003"' in payload
     assert judge.get_judgments()[0].source == "llm"
-    assert "Use cut_id to understand temporal context across the video." in client.models.calls[0]["config"].system_instruction
-    assert "interaction_type will be either sfx or voice." in client.models.calls[0]["config"].system_instruction
+    system_instruction = client.models.calls[0]["config"].system_instruction
+    assert "Use cut_id to understand temporal context across the video." in system_instruction
+    assert "Merge into one track." in system_instruction
+    assert "When uncertain, always merge." in system_instruction
 
 
 def test_track_judge_falls_back_on_parse_error():
     client = _FakeClient(responses=[_FakeResponse("not-json")])
     judge = TrackJudge(flash_client=client)
 
-    groups = judge.judge_group([_action("act_001"), _action("act_002")], "char_001", "sfx", "onset")
+    groups = judge.judge_group([_action("act_001"), _action("act_002")], "fighter_footstep", "sfx", "onset")
 
     assert [[action.action_id for action in group] for group in groups] == [["act_001"], ["act_002"]]
     assert judge.get_judgments()[0].source == "llm_error"
@@ -117,7 +117,7 @@ def test_track_judge_falls_back_on_action_id_mismatch():
     )
     judge = TrackJudge(flash_client=client)
 
-    groups = judge.judge_group([_action("act_001"), _action("act_002")], "char_001", "sfx", "onset")
+    groups = judge.judge_group([_action("act_001"), _action("act_002")], "fighter_footstep", "sfx", "onset")
 
     assert [[action.action_id for action in group] for group in groups] == [["act_001"], ["act_002"]]
     assert [warning.code for warning in judge.get_warnings()] == ["TRACK_JUDGE_ID_MISMATCH"]
@@ -126,7 +126,7 @@ def test_track_judge_falls_back_on_action_id_mismatch():
 def test_track_judge_falls_back_on_api_error():
     judge = TrackJudge(flash_client=_FakeClient(exc=RuntimeError("network down")))
 
-    groups = judge.judge_group([_action("act_001"), _action("act_002")], "char_001", "sfx", "onset")
+    groups = judge.judge_group([_action("act_001"), _action("act_002")], "fighter_footstep", "sfx", "onset")
 
     assert [[action.action_id for action in group] for group in groups] == [["act_001"], ["act_002"]]
     assert judge.llm_call_count == 1

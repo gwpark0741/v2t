@@ -4,7 +4,7 @@ import hashlib
 import re
 
 from collections import defaultdict
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 from .models import (
     Action,
@@ -13,6 +13,7 @@ from .models import (
     TrackGroupResult,
     TrackManifest,
     UnresolvedUnknown,
+    WarningItem,
 )
 from .track_judge import TrackJudge
 
@@ -46,8 +47,7 @@ def _resolved_action(action: Action) -> Action:
 def _track_type_sort_key(track_type: str) -> tuple[int, str]:
     order = {
         "sfx": 0,
-        "voice": 1,
-        "ambience": 2,
+        "ambience": 1,
     }
     return (order.get(track_type, 99), track_type)
 
@@ -160,14 +160,27 @@ def _sort_tracks_for_manifest(tracks: list[Track]) -> list[Track]:
 def synthesize_tracks(
     actions: List[Action],
     *,
-    source_entity_kind_by_id: Optional[Dict[str, str]] = None,
     track_judge: Optional[TrackJudge] = None,
 ) -> PipelineResult:
-    _ = source_entity_kind_by_id
     unresolved_unknowns: list[UnresolvedUnknown] = []
     buckets: dict[tuple[str, str, str], list[Action]] = defaultdict(list)
+    warnings: list[WarningItem] = []
 
     for action in actions:
+        if getattr(action, "interaction_type", None) == "voice":
+            warnings.append(
+                WarningItem(
+                    code="STAGE06_LEGACY_VOICE_DROPPED",
+                    severity="warning",
+                    message="Dropped a legacy voice action because Stage 06 now supports only sfx and ambience.",
+                    context={
+                        "action_id": action.action_id,
+                        "cut_id": action.cut_id,
+                        "primary_source_id": action.primary_source_id,
+                    },
+                )
+            )
+            continue
         if _is_unresolved_unknown(action):
             unresolved_unknowns.append(
                 UnresolvedUnknown(
@@ -273,5 +286,5 @@ def synthesize_tracks(
     return PipelineResult(
         track_manifest=TrackManifest(tracks=numbered_tracks),
         unresolved_unknowns=unresolved_unknowns,
-        warnings=[],
+        warnings=warnings,
     )

@@ -136,7 +136,7 @@ def test_build_agent_c_report_html_renders_deterministic_judgment_badge():
         update={
             "track_group_judgments": [
                 TrackGroupJudgment(
-                    group_key="char_001__voice__onset",
+                    group_key="char_001__sfx__onset",
                     input_action_ids=["act_001", "act_002"],
                     output_groups=[
                         TrackGroupResult(
@@ -154,4 +154,4 @@ def test_build_agent_c_report_html_renders_deterministic_judgment_badge():
     html = build_agent_c_report_html(result)
 
     assert "deterministic" in html
-    assert "char_001__voice__onset" in html
+    assert "char_001__sfx__onset" in html

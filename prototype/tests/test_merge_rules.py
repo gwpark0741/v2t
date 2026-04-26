@@ -23,21 +23,16 @@ def make_action(
 
 class MergeRulesTest(unittest.TestCase):
     def test_ambience_merges_when_source_and_interaction_match(self):
-        base = make_action("amb_001", "ambience")
-        other = make_action("amb_001", "ambience")
+        base = make_action("wind", "ambience")
+        other = make_action("wind", "ambience")
         self.assertTrue(canonical_should_merge(base, other))
 
     def test_sfx_never_merges_via_canonical_rule(self):
-        base = make_action("obj_001", "sfx")
-        other = make_action("obj_001", "sfx")
-        self.assertIsNone(canonical_should_merge(base, other))
-
-    def test_voice_never_merges_via_canonical_rule(self):
-        base = make_action("char_001", "voice")
-        other = make_action("char_001", "voice")
+        base = make_action("sword", "sfx")
+        other = make_action("sword", "sfx")
         self.assertIsNone(canonical_should_merge(base, other))
 
     def test_mismatched_sources_do_not_merge(self):
-        base = make_action("amb_001", "ambience")
-        other = make_action("amb_002", "ambience")
+        base = make_action("wind", "ambience")
+        other = make_action("rain", "ambience")
         self.assertFalse(canonical_should_merge(base, other))
