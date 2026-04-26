@@ -4,47 +4,36 @@ from v2t_prototype.agent_b import build_agent_b_cut_input, validate_agent_b_resp
 from v2t_prototype.models import (
     Action,
     AgentBResponse,
-    AmbienceSource,
-    Character,
+    Ambience,
     ContinuousEvent,
     Cut,
+    Entity,
+    Entity_Child,
     EntityRegistry,
-    Interval,
-    KeyObject,
     SegmentClip,
+    Unknown,
     UnknownResolution,
 )
 
 
 def _entity_registry() -> EntityRegistry:
     return EntityRegistry(
-        characters=[
-            Character(
-                id="char_001",
-                label="Fighter",
-                visual_description="Armored fighter",
-                entry_exit_intervals=[Interval(start_time=0.0, end_time=10.0)],
-                audibility="likely_audible",
+        entities=[
+            Entity(
+                id="samurai",
+                label="samurai",
+                children=[
+                    Entity_Child(id="samurai_footstep", label="samurai footstep"),
+                    Entity_Child(id="samurai_armor", label="samurai armor"),
+                ],
             )
         ],
-        key_objects=[
-            KeyObject(
-                id="obj_001",
-                label="Sword",
-                visual_description="Steel sword",
-                material="steel",
-                surface="polished",
-                has_mechanism=False,
-                audibility="audible",
-            )
-        ],
-        ambience_sources=[
-            AmbienceSource(
-                id="amb_001",
-                label="Training yard",
-                space_description="Outdoor arena",
-                distance_profile="mid",
-                tonal_quality="dry",
+        ambience=[Ambience(id="wind", label="wind")],
+        unknowns=[
+            Unknown(
+                id="unknown_1",
+                label="unknown 1",
+                visual_description="wrapped cylindrical object near the samurai",
             )
         ],
     )
@@ -72,10 +61,10 @@ def _valid_action(**overrides) -> Action:
     payload = {
         "action_id": "act_CUT_001_001",
         "cut_id": "CUT_001",
-        "primary_source_id": "obj_001",
+        "primary_source_id": "samurai_armor",
         "interaction_type": "sfx",
-        "sound_description": "metal sword clash with a bright ring",
-        "observed_visual_description": "two swords collide",
+        "sound_description": "metal armor rattle with a bright ring",
+        "observed_visual_description": "armor plates collide",
         "event": ContinuousEvent(type="continuous", start_time=0.5, end_time=1.5),
         "boundary_flag": False,
     }
@@ -103,7 +92,7 @@ def test_build_agent_b_cut_input_raises_on_cut_id_mismatch():
         raise AssertionError("Expected ValueError for mismatched cut_id")
 
 
-def test_validate_agent_b_response_accepts_valid_response():
+def test_validate_agent_b_response_accepts_valid_leaf_response():
     issues = validate_agent_b_response(
         _response(_valid_action()),
         "CUT_001",
@@ -115,14 +104,36 @@ def test_validate_agent_b_response_accepts_valid_response():
     assert issues == []
 
 
-def test_validate_agent_b_response_accepts_voice_interaction_type():
+def test_validate_agent_b_response_rejects_non_leaf_parent_id():
+    issues = validate_agent_b_response(
+        _response(_valid_action(primary_source_id="samurai")),
+        "CUT_001",
+        _entity_registry(),
+        cut_start_time=0.0,
+        cut_end_time=4.0,
+    )
+
+    assert issues == ["AGENT_B_UNKNOWN_SOURCE_ID"]
+
+
+def test_validate_agent_b_response_accepts_known_target_even_if_model_interaction_type_is_wrong():
+    issues = validate_agent_b_response(
+        _response(_valid_action(primary_source_id="wind", interaction_type="sfx")),
+        "CUT_001",
+        _entity_registry(),
+        cut_start_time=0.0,
+        cut_end_time=4.0,
+    )
+
+    assert issues == []
+
+
+def test_validate_agent_b_response_rejects_agent_a_unknown_id_as_mapping_target():
     issues = validate_agent_b_response(
         _response(
             _valid_action(
-                primary_source_id="char_001",
-                interaction_type="voice",
-                sound_description="strained vocal grunt of effort",
-                observed_visual_description="fighter shouts while swinging",
+                primary_source_id="unknown_1",
+                observed_visual_description="wrapped cylindrical object swings while moving",
             )
         ),
         "CUT_001",
@@ -131,7 +142,7 @@ def test_validate_agent_b_response_accepts_voice_interaction_type():
         cut_end_time=4.0,
     )
 
-    assert issues == []
+    assert issues == ["AGENT_B_UNKNOWN_SOURCE_ID"]
 
 
 def test_validate_agent_b_response_reports_duplicate_action_id():
@@ -198,6 +209,27 @@ def test_validate_agent_b_response_reports_invalid_reassign_target():
                     suggestion="REASSIGN_TO_EXISTING",
                     suggested_entity_id="obj_missing",
                     reason="looks like a sword",
+                ),
+            )
+        ),
+        "CUT_001",
+        _entity_registry(),
+        cut_start_time=0.0,
+        cut_end_time=4.0,
+    )
+
+    assert issues == ["AGENT_B_INVALID_REASSIGN_TARGET"]
+
+
+def test_validate_agent_b_response_rejects_agent_a_unknown_id_as_reassign_target():
+    issues = validate_agent_b_response(
+        _response(
+            _valid_action(
+                primary_source_id="UNKNOWN_OBJECT_CUT001_1",
+                unknown_resolution=UnknownResolution(
+                    suggestion="REASSIGN_TO_EXISTING",
+                    suggested_entity_id="unknown_1",
+                    reason="matches an Agent A unknown bucket",
                 ),
             )
         ),

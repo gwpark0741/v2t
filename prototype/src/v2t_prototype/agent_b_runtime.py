@@ -12,6 +12,7 @@ from pydantic import ValidationError
 
 from .agent_a_runtime import AgentARuntimeOutput
 from .agent_b import build_agent_b_cut_input, validate_agent_b_response
+from .entity_registry import derive_interaction_type, get_ambience_targets, get_sfx_targets
 from .gemini_metrics import add_token_usage, estimate_model_cost_usd, extract_token_usage
 from .gemini_client import create_gemini_client
 from .models import (
@@ -21,6 +22,7 @@ from .models import (
     AgentBCutOutput,
     AgentBResponse,
     ContinuousEvent,
+    EntityRegistry,
     OnsetEvent,
     SegmentPrepResult,
     TokenUsage,
@@ -37,7 +39,10 @@ that would realistically occur in this clip.
 You will receive:
   - A video clip (exact cut interval, no padding)
   - The authoritative cut interval: cut_id, start_time, end_time
-  - An entity registry from Agent A (characters, key_objects, ambience_sources)
+  - An entity registry with three sections:
+      sfx_targets
+      ambience_targets
+      unknowns
 
 ---
 
@@ -46,26 +51,29 @@ RULES
 1. Identify ALL audible or likely-audible sound events in this clip.
 
 2. For each sound event, assign primary_source_id:
-   - Match to a registry entity: char_*, obj_*, amb_*
+   - For foreground sound events: match to the most specific id in sfx_targets
+   - For background/environmental layers: match to an id in ambience_targets
+   - Never use an id from unknowns as primary_source_id
    - If no clear match: use UNKNOWN_{CHARACTER|OBJECT|AMBIENCE}_CUT{NNN}_{SEQ}
 
 3. For UNKNOWN primary_source_id:
    - Review the ENTIRE registry again carefully before deciding.
    - If you find a matching entity with high confidence:
        suggestion: REASSIGN_TO_EXISTING
-       suggested_entity_id: <registry id>
+       suggested_entity_id: <valid id from sfx_targets or ambience_targets>
    - If uncertain or no match:
        suggestion: UNRESOLVED
 
-4. Classify interaction_type — choose exactly one:
-   sfx      — non-vocal foreground sound events: impact, friction, collision,
-              cloth movement, body movement, mechanisms, electronic devices
-   voice    — all human vocal sounds: speech, singing, kiai, grunts, groans,
-              moans, exertion vocals, pain vocals
-   ambience — continuous spatial sound with no specific singular foreground source:
-              room tone, wind, crowd bed, environmental background layers
+4. Set interaction_type based on which target list you mapped to:
+   - Mapped to sfx_targets -> interaction_type: sfx
+   - Mapped to ambience_targets -> interaction_type: ambience
+   - UNKNOWN_* source -> use sfx unless clearly a background layer
 
-5. Fill these fields for every action:
+5. Exclude all human vocalizations.
+   Do not create actions for dialogue, speech, crying, laughter, shouting,
+   screaming, grunting, groaning, singing, kiai, or any other mouth/throat-produced sound.
+
+6. Fill these fields for every action:
 
    sound_description:
      - Describe the sound clearly in one sentence.
@@ -91,24 +99,25 @@ RULES
    observed_visual_description:
      Describe what you see that produces this sound.
 
-6. Choose event type:
+7. Choose event type:
    - All event timestamps must be relative to THIS clip.
    - The clip always starts at 0.0 seconds.
    - Do NOT use full-video absolute timestamps.
-   - onset:      single impact or instantaneous event
-   - continuous: sustained sound with clear start and end
+   - onset:      single discrete impact or instantaneous event
+   - continuous: sustained sound or repeated pattern perceived as one layer
+                 Prefer a single continuous event over multiple onset events
+                 when the same sound repeats in a sustained pattern.
 
    Examples:
      {"event": {"type": "onset", "timestamp": 0.2}}
      {"event": {"type": "continuous", "start_time": 0.5, "end_time": 1.1}}
 
-7. action_id format: act_{cut_id}_{SEQ:03d}
+8. action_id format: act_{cut_id}_{SEQ:03d}
    Example: act_CUT001_001, act_CUT001_002
 
-8. Constraints:
+9. Constraints:
    - Do NOT add new entities to the registry.
    - Do NOT modify cut boundaries.
-   - Set boundary_flag to false for all actions.
    - Return ONLY a JSON object matching the provided schema."""
 
 _EVENT_TYPE_NORMALIZATION = {
@@ -122,14 +131,43 @@ _RETRYABLE_AGENT_B_ERROR_CODES = {429, 500, 502, 503, 504}
 _AGENT_B_RETRY_BACKOFF_SECONDS = (2.0, 5.0, 10.0)
 
 
-def _build_agent_b_prompt(input: AgentBCutInput) -> str:
-    entity_registry_json = input.entity_registry.model_dump_json(indent=2)
+def build_agent_b_user_prompt(input: AgentBCutInput) -> str:
+    sfx_targets_json = json.dumps(
+        [
+            {"id": target.id, "label": target.label}
+            for target in get_sfx_targets(input.entity_registry).values()
+        ],
+        indent=2,
+    )
+    ambience_targets_json = json.dumps(
+        [
+            {"id": target.id, "label": target.label}
+            for target in get_ambience_targets(input.entity_registry).values()
+        ],
+        indent=2,
+    )
+    unknowns_json = json.dumps(
+        [
+            {
+                "id": unknown.id,
+                "label": unknown.label,
+                "visual_description": unknown.visual_description,
+            }
+            for unknown in input.entity_registry.unknowns
+        ],
+        indent=2,
+    )
     return (
         "Analyze the following cut segment.\n\n"
         f"cut_id: {input.cut_id}\n"
         f"Authoritative interval: {input.cut_start_time:.3f}s to {input.cut_end_time:.3f}s\n\n"
-        "Entity registry:\n"
-        f"{entity_registry_json}"
+        "Registry:\n\n"
+        "sfx_targets (map foreground sound events here):\n"
+        f"{sfx_targets_json}\n\n"
+        "ambience_targets (map background/environmental layers here):\n"
+        f"{ambience_targets_json}\n\n"
+        "unknowns (contextual reference only - do not use as primary_source_id):\n"
+        f"{unknowns_json}"
     )
 
 
@@ -236,7 +274,12 @@ def _event_in_absolute_range(action: Action, *, cut_start_time: float, cut_end_t
     )
 
 
-def _postprocess_action(action: Action, *, cut_start_time: float) -> Action:
+def _postprocess_action(
+    action: Action,
+    *,
+    cut_start_time: float,
+    entity_registry: EntityRegistry,
+) -> Action:
     primary_source_id = action.primary_source_id
     unknown_resolution: UnknownResolution | None = action.unknown_resolution
     if (
@@ -250,9 +293,14 @@ def _postprocess_action(action: Action, *, cut_start_time: float) -> Action:
         action,
         cut_start_time=cut_start_time,
     )
+    normalized_interaction_type = action.interaction_type
+    derived_interaction_type = derive_interaction_type(primary_source_id, entity_registry)
+    if derived_interaction_type is not None:
+        normalized_interaction_type = derived_interaction_type
     return normalized_action.model_copy(
         update={
             "primary_source_id": primary_source_id,
+            "interaction_type": normalized_interaction_type,
             "boundary_flag": False,
         }
     )
@@ -266,7 +314,7 @@ def run_agent_b_for_cut(
     max_retries: int = 2,
 ) -> AgentBCutOutput:
     runtime_client = client or create_gemini_client()
-    prompt = _build_agent_b_prompt(input)
+    prompt = build_agent_b_user_prompt(input)
     clip_part = types.Part.from_uri(
         file_uri=input.clip_video_url,
         mime_type=input.clip_video_mime_type,
@@ -354,7 +402,11 @@ def run_agent_b_for_cut(
             )
 
         processed_actions = [
-            _postprocess_action(action, cut_start_time=input.cut_start_time)
+            _postprocess_action(
+                action,
+                cut_start_time=input.cut_start_time,
+                entity_registry=input.entity_registry,
+            )
             for action in parsed_response.actions
         ]
         absolute_issues = list(issues)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 
+from .entity_registry import get_all_valid_targets
 from .models import AgentBCutInput, AgentBResponse, ContinuousEvent, Cut, EntityRegistry, OnsetEvent, SegmentClip
 
 
@@ -28,11 +29,7 @@ def build_agent_b_cut_input(
 
 
 def _registry_entity_ids(entity_registry: EntityRegistry) -> set[str]:
-    return (
-        {item.id for item in entity_registry.characters}
-        | {item.id for item in entity_registry.key_objects}
-        | {item.id for item in entity_registry.ambience_sources}
-    )
+    return set(get_all_valid_targets(entity_registry))
 
 
 def validate_agent_b_response(
@@ -61,8 +58,9 @@ def validate_agent_b_response(
         if action.primary_source_id.startswith("UNKNOWN_"):
             if UNKNOWN_PATTERN.match(action.primary_source_id) is None:
                 issues.append("AGENT_B_INVALID_UNKNOWN_FORMAT")
-        elif action.primary_source_id not in all_registry_ids:
-            issues.append("AGENT_B_UNKNOWN_SOURCE_ID")
+        else:
+            if action.primary_source_id not in all_registry_ids:
+                issues.append("AGENT_B_UNKNOWN_SOURCE_ID")
 
         if (
             action.unknown_resolution is not None
