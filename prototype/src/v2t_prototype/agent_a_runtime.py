@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import time
 from typing import Optional
 
@@ -11,16 +12,11 @@ from .agent_a import build_agent_a_request, validate_agent_a_response
 from .gemini_metrics import estimate_model_cost_usd, extract_token_usage
 from .gemini_client import DEFAULT_AGENT_A_MODEL, create_gemini_client
 from .models import AgentARequest, AgentAResponse, FullVideoAssetResult, TokenUsage
+from .prompts import load_prompt
 
 
-DEFAULT_AGENT_A_SYSTEM_PROMPT = (
-    "You are an expert in video analysis for sound generation.\n"
-    "Watch the full video and build a hierarchical entity registry for downstream sound-action mapping.\n"
-    "Base all decisions on visual information only. Do not infer from audio.\n"
-    "Hierarchy is strictly 2 levels: entity -> child.\n"
-    "Exclude all mouth/throat-produced vocalization sources.\n"
-    "Return valid JSON only. No text outside the JSON block."
-)
+DEFAULT_AGENT_A_SYSTEM_PROMPT = load_prompt("agent_a_system.md")
+AGENT_A_USER_PROMPT_TEMPLATE = load_prompt("agent_a_user.md")
 
 
 class AgentARuntimeError(RuntimeError):
@@ -89,30 +85,31 @@ class _AgentAEntityRegistrySchema(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-def _build_agent_a_prompt(request: AgentARequest, prompt_header: str) -> str:
-    return (
-        f"{prompt_header}\n\n"
-        "Entities\n\n"
-        "An entity is a scene-relevant object, person, group, or environmental source\n"
-        "that can produce sound or own sound-producing sub-entities.\n\n"
-        "Children represent acoustically distinct sub-sources that would each become\n"
-        "an independent sound track downstream.\n"
-        "Create children only when genuinely useful.\n\n"
-        "Special Cases\n\n"
-        "Ambience entries belong in the ambience array and never have children.\n"
-        "Unknown entries belong in the unknowns array with a visual_description.\n"
-        "Unknown IDs must follow unknown_1, unknown_2, ...\n"
-        "Use snake_case IDs and keep them globally unique.\n"
-        "Omit the children field entirely for childless entities.\n\n"
-        "Authoritative video metadata:\n"
-        f"- fps: {request.video_metadata.fps}\n"
-        f"- duration_seconds: {request.video_metadata.duration_seconds}\n"
-        f"- resolution: {request.video_metadata.width}x{request.video_metadata.height}\n"
+def _build_agent_a_prompt(request: AgentARequest) -> str:
+    cuts_json = json.dumps(
+        [
+            {
+                "id": cut.id,
+                "start_time": cut.start_time,
+                "end_time": cut.end_time,
+            }
+            for cut in request.cuts
+        ],
+        indent=2,
+    )
+    return AGENT_A_USER_PROMPT_TEMPLATE.format(
+        video_path=request.video_metadata.video_path,
+        fps=request.video_metadata.fps,
+        duration_seconds=request.video_metadata.duration_seconds,
+        width=request.video_metadata.width,
+        height=request.video_metadata.height,
+        cuts_json=cuts_json,
     )
 
 
-def _build_generation_config() -> types.GenerateContentConfig:
+def _build_generation_config(system_prompt: str) -> types.GenerateContentConfig:
     return types.GenerateContentConfig(
+        system_instruction=system_prompt,
         response_mime_type="application/json",
         response_json_schema=_AgentAEntityRegistrySchema.model_json_schema(),
     )
@@ -123,16 +120,19 @@ def run_agent_a_runtime(
     *,
     client: Optional[genai.Client] = None,
     model: str = DEFAULT_AGENT_A_MODEL,
-    prompt_header: str = DEFAULT_AGENT_A_SYSTEM_PROMPT,
+    system_prompt: str = DEFAULT_AGENT_A_SYSTEM_PROMPT,
+    prompt_header: str | None = None,
 ) -> AgentARuntimeOutput:
     """
     End-to-end Agent A runtime:
     call Gemini with the pre-uploaded video_url -> parse JSON -> post-validate.
     """
     runtime_client = client or create_gemini_client()
+    if prompt_header is not None:
+        system_prompt = prompt_header
 
     request = build_agent_a_request(full_video_asset=full_video_asset)
-    prompt = _build_agent_a_prompt(request, prompt_header)
+    prompt = _build_agent_a_prompt(request)
     video_part = types.Part.from_uri(
         file_uri=request.video_url,
         mime_type=request.video_mime_type,
@@ -142,7 +142,7 @@ def run_agent_a_runtime(
     gemini_response = runtime_client.models.generate_content(
         model=model,
         contents=[video_part, prompt],
-        config=_build_generation_config(),
+        config=_build_generation_config(system_prompt),
     )
     latency_ms = (time.monotonic() - started_at) * 1000.0
     usage = extract_token_usage(gemini_response)
