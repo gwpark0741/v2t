@@ -73,13 +73,17 @@ def build_agent_b_user_prompt(input: AgentBCutInput) -> str:
         ],
         indent=2,
     )
+    unknowns_section = (
+        "unknowns (contextual reference only - do not use as primary_source_id):\n"
+        f"{unknowns_json}"
+    )
     return AGENT_B_USER_PROMPT_TEMPLATE.format(
         cut_id=input.cut_id,
         cut_start_time=input.cut_start_time,
         cut_end_time=input.cut_end_time,
         sfx_targets_json=sfx_targets_json,
         ambience_targets_json=ambience_targets_json,
-        unknowns_json=unknowns_json,
+        unknowns_section=unknowns_section,
     )
 
 

@@ -204,7 +204,7 @@ def test_validate_agent_b_response_reports_invalid_reassign_target():
     issues = validate_agent_b_response(
         _response(
             _valid_action(
-                primary_source_id="UNKNOWN_OBJECT_CUT001_1",
+                primary_source_id="UNKNOWN_ENTITY_CUT001_001",
                 unknown_resolution=UnknownResolution(
                     suggestion="REASSIGN_TO_EXISTING",
                     suggested_entity_id="obj_missing",
@@ -225,7 +225,7 @@ def test_validate_agent_b_response_rejects_agent_a_unknown_id_as_reassign_target
     issues = validate_agent_b_response(
         _response(
             _valid_action(
-                primary_source_id="UNKNOWN_OBJECT_CUT001_1",
+                primary_source_id="UNKNOWN_ENTITY_CUT001_001",
                 unknown_resolution=UnknownResolution(
                     suggestion="REASSIGN_TO_EXISTING",
                     suggested_entity_id="unknown_1",

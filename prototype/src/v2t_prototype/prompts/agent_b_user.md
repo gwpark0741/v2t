@@ -11,5 +11,4 @@ sfx_targets (map foreground sound events here):
 ambience_targets (map background/environmental layers here):
 {ambience_targets_json}
 
-unknowns (contextual reference only - do not use as primary_source_id):
-{unknowns_json}
+{unknowns_section}

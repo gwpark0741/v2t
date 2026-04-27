@@ -6,7 +6,7 @@ from .entity_registry import get_all_valid_targets
 from .models import AgentBCutInput, AgentBResponse, ContinuousEvent, Cut, EntityRegistry, OnsetEvent, SegmentClip
 
 
-UNKNOWN_PATTERN = re.compile(r"^UNKNOWN_(CHARACTER|OBJECT|AMBIENCE)_CUT\d{3}_\d+$")
+UNKNOWN_PATTERN = re.compile(r"^UNKNOWN_(ENTITY|AMBIENCE)_CUT\d{3}_\d{3}$")
 LOCAL_EVENT_TIME_TOLERANCE_SECONDS = 1e-3
 
 

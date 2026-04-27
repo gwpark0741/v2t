@@ -6,9 +6,9 @@ You will receive:
   - A video clip (exact cut interval, no padding)
   - The authoritative cut interval: cut_id, start_time, end_time
   - An entity registry with three sections:
-      sfx_targets
-      ambience_targets
-      unknowns
+      sfx_targets       — leaf-level foreground sound sources (no parent containers)
+      ambience_targets  — background/environmental sound sources
+      unknowns          — contextual reference only, never use as primary_source_id
 
 ---
 
@@ -19,8 +19,10 @@ RULES
 2. For each sound event, assign primary_source_id:
    - For foreground sound events: match to the most specific id in sfx_targets
    - For background/environmental layers: match to an id in ambience_targets
+   - All entries in sfx_targets are valid leaf-level mapping targets
    - Never use an id from unknowns as primary_source_id
-   - If no clear match: use UNKNOWN_{CHARACTER|OBJECT|AMBIENCE}_CUT{NNN}_{SEQ}
+   - If no clear match: use UNKNOWN_{ENTITY|AMBIENCE}_{cut_id}_{SEQ:03d}
+     e.g. UNKNOWN_ENTITY_CUT001_001, UNKNOWN_AMBIENCE_CUT003_001
 
 3. For UNKNOWN primary_source_id:
    - Review the ENTIRE registry again carefully before deciding.
@@ -31,9 +33,10 @@ RULES
        suggestion: UNRESOLVED
 
 4. Set interaction_type based on which target list you mapped to:
-   - Mapped to sfx_targets -> interaction_type: sfx
+   - Mapped to sfx_targets      -> interaction_type: sfx
    - Mapped to ambience_targets -> interaction_type: ambience
-   - UNKNOWN_* source -> use sfx unless clearly a background layer
+   - UNKNOWN_ENTITY_*           -> interaction_type: sfx
+   - UNKNOWN_AMBIENCE_*         -> interaction_type: ambience
 
 5. Exclude all human vocalizations.
    Do not create actions for dialogue, speech, crying, laughter, shouting,
@@ -48,8 +51,6 @@ RULES
      - If repeated sounds are acoustically equivalent, keep the wording identical
        across timestamps and cuts.
      - Do not rewrite the description just because the timing changed.
-     - If the sound is sustained, prefer a single continuous event instead of
-       multiple onset events.
 
    Preferred style examples:
      Ambience:
@@ -60,7 +61,7 @@ RULES
      Sfx:
        "Slow, solitary footsteps with a slight splash on wet pavement, steady rhythm."
        "Forceful burst of powdery snow, a quick whoosh, and muffled landing."
-       "deep wooden groans, hull straining, water splashing"
+       "Deep wooden groans as the hull strains, with water splashing against the sides."
 
    observed_visual_description:
      Describe what you see that produces this sound.
@@ -69,10 +70,24 @@ RULES
    - All event timestamps must be relative to THIS clip.
    - The clip always starts at 0.0 seconds.
    - Do NOT use full-video absolute timestamps.
+   - Do not exceed the clip duration for any timestamp.
+
    - onset:      single discrete impact or instantaneous event
-   - continuous: sustained sound or repeated pattern perceived as one layer
-                 Prefer a single continuous event over multiple onset events
-                 when the same sound repeats in a sustained pattern.
+                 e.g. a single sword strike, a door slam, a single footstep
+                 Use one onset per discrete event.
+                 Do not merge repeated onsets into a continuous event.
+
+   - continuous: genuinely sustained sound with a clear start and end,
+                 perceived as one unbroken layer
+                 e.g. armor rustling throughout a movement sequence,
+                      engine running, wind blowing
+                 Use continuous only when the sound is genuinely sustained,
+                 not just because the same onset repeats.
+                 If a continuous sound extends to the end of the clip,
+                 set end_time to the clip duration (cut_end_time - cut_start_time).
+
+   - When sounds are clearly separated by silence or discrete impacts,
+     use individual onset events.
 
    Examples:
      {"event": {"type": "onset", "timestamp": 0.2}}

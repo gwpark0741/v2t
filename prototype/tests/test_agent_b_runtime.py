@@ -145,7 +145,7 @@ def test_run_agent_b_for_cut_success_rewrites_reassign_and_forces_boundary_false
             "actions": [
                 _valid_action_dict(
                     action_id="act_CUT_001_001",
-                    primary_source_id="UNKNOWN_OBJECT_CUT001_1",
+                    primary_source_id="UNKNOWN_ENTITY_CUT001_001",
                     unknown_resolution={
                         "suggestion": "REASSIGN_TO_EXISTING",
                         "suggested_entity_id": "samurai_armor",
@@ -208,7 +208,7 @@ def test_run_agent_b_for_cut_derives_interaction_type_from_reassigned_ambience_t
         {
             "actions": [
                 _valid_action_dict(
-                    primary_source_id="UNKNOWN_AMBIENCE_CUT001_1",
+                    primary_source_id="UNKNOWN_AMBIENCE_CUT001_001",
                     interaction_type="sfx",
                     unknown_resolution={
                         "suggestion": "REASSIGN_TO_EXISTING",

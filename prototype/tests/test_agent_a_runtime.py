@@ -151,7 +151,7 @@ def test_run_agent_a_runtime_success_with_structured_output_config():
     assert config.system_instruction == DEFAULT_AGENT_A_SYSTEM_PROMPT
     user_prompt = call_kwargs["contents"][1]
     assert "Analyze the attached full video" in user_prompt
-    assert "Authoritative cuts:" in user_prompt
+    assert "Authoritative cuts (use to understand scene structure and temporal boundaries):" in user_prompt
     assert '"id": "CUT_001"' in user_prompt
     assert "You are Agent A" not in user_prompt
     response_schema = config.response_json_schema
@@ -169,7 +169,7 @@ def test_agent_a_prompt_includes_hierarchy_and_vocal_exclusion_rules():
     assert "Exclude all mouth/throat-produced vocalization sources" in DEFAULT_AGENT_A_SYSTEM_PROMPT
     assert "EntityRegistry:" in DEFAULT_AGENT_A_SYSTEM_PROMPT
     assert "Ambience:" in DEFAULT_AGENT_A_SYSTEM_PROMPT
-    assert "Example 1 - person with useful child sound sources:" in DEFAULT_AGENT_A_SYSTEM_PROMPT
+    assert "Example 1 - Entity with acoustically distinct children:" in DEFAULT_AGENT_A_SYSTEM_PROMPT
 
 
 def test_run_agent_a_runtime_raises_on_invalid_json_response():
