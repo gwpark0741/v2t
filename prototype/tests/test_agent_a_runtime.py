@@ -19,7 +19,7 @@ from v2t_prototype import (
     run_agent_a_runtime,
 )
 from v2t_prototype.agent_a_runtime import DEFAULT_AGENT_A_SYSTEM_PROMPT
-from v2t_prototype.gemini_client import wait_for_uploaded_file_active
+from v2t_prototype.gemini_client import GeminiGenerationParams, wait_for_uploaded_file_active
 
 
 def make_full_video_asset_result() -> FullVideoAssetResult:
@@ -137,9 +137,7 @@ def test_run_agent_a_runtime_success_with_structured_output_config():
         usage_metadata=_usage_metadata(prompt_token_count=1200, candidates_token_count=300),
     )
 
-    with patch("v2t_prototype.agent_a_runtime.types.Part.from_uri") as part_from_uri:
-        part_from_uri.return_value = SimpleNamespace(content="video part")
-        output = run_agent_a_runtime(full_video_asset=full_video_asset, client=client)
+    output = run_agent_a_runtime(full_video_asset=full_video_asset, client=client)
 
     assert output.request.video_url == "gs://bucket/sample.mp4"
     assert output.response.entity_registry.entities[0].id == "baby"
@@ -158,10 +156,46 @@ def test_run_agent_a_runtime_success_with_structured_output_config():
     assert response_schema["required"] == ["entities", "ambience", "unknowns"]
     child_schema = response_schema["$defs"]["_AgentAEntityChildSchema"]
     assert "children" not in child_schema["properties"]
-    part_from_uri.assert_called_once_with(
-        file_uri=full_video_asset.video_url,
-        mime_type="video/mp4",
+    video_part = call_kwargs["contents"][0]
+    assert video_part.video_metadata.fps == 5.0
+
+
+def test_run_agent_a_runtime_accepts_temperature():
+    full_video_asset = make_full_video_asset_result()
+    client = _make_mock_client(_valid_agent_a_response_json())
+
+    run_agent_a_runtime(
+        full_video_asset=full_video_asset,
+        client=client,
+        temperature=0.0,
     )
+
+    config = client.models.generate_content.call_args.kwargs["config"]
+    assert config.temperature == 0.0
+
+
+def test_run_agent_a_runtime_accepts_generation_params():
+    full_video_asset = make_full_video_asset_result()
+    client = _make_mock_client(_valid_agent_a_response_json())
+
+    run_agent_a_runtime(
+        full_video_asset=full_video_asset,
+        client=client,
+        generation_params=GeminiGenerationParams(
+            temperature=0.2,
+            top_p=0.8,
+            top_k=32,
+            seed=42,
+            max_output_tokens=2048,
+        ),
+    )
+
+    config = client.models.generate_content.call_args.kwargs["config"]
+    assert config.temperature == 0.2
+    assert config.top_p == 0.8
+    assert config.top_k == 32
+    assert config.seed == 42
+    assert config.max_output_tokens == 2048
 
 
 def test_agent_a_prompt_includes_hierarchy_and_vocal_exclusion_rules():

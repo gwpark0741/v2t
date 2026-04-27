@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+from v2t_prototype.gemini_client import GeminiGenerationParams
 from v2t_prototype.models import Action, OnsetEvent
 from v2t_prototype.track_judge import TrackJudge
 
@@ -77,7 +78,7 @@ def test_track_judge_payload_includes_cut_id_and_returns_llm_groups():
         usage_metadata=_usage_metadata(prompt_token_count=100, candidates_token_count=20),
     )
     client = _FakeClient(responses=[response])
-    judge = TrackJudge(flash_client=client)
+    judge = TrackJudge(flash_client=client, temperature=0.0)
 
     groups = judge.judge_group(
         [_action("act_001", cut_id="CUT_001"), _action("act_002", cut_id="CUT_003")],
@@ -98,6 +99,38 @@ def test_track_judge_payload_includes_cut_id_and_returns_llm_groups():
     assert "Use cut_id to understand temporal context across the video." in system_instruction
     assert "Merge into one track." in system_instruction
     assert "When uncertain, always merge." in system_instruction
+    assert client.models.calls[0]["config"].temperature == 0.0
+
+
+def test_track_judge_accepts_generation_params():
+    response = _FakeResponse(
+        '{"groups":[{"action_ids":["act_001","act_002"],"reason":"same repeating footstep"}]}'
+    )
+    client = _FakeClient(responses=[response])
+    judge = TrackJudge(
+        flash_client=client,
+        generation_params=GeminiGenerationParams(
+            temperature=0.2,
+            top_p=0.8,
+            top_k=32,
+            seed=42,
+            max_output_tokens=2048,
+        ),
+    )
+
+    judge.judge_group(
+        [_action("act_001"), _action("act_002")],
+        "fighter_footstep",
+        "sfx",
+        "onset",
+    )
+
+    config = client.models.calls[0]["config"]
+    assert config.temperature == 0.2
+    assert config.top_p == 0.8
+    assert config.top_k == 32
+    assert config.seed == 42
+    assert config.max_output_tokens == 2048
 
 
 def test_track_judge_falls_back_on_parse_error():

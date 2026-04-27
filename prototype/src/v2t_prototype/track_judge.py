@@ -7,13 +7,17 @@ from typing import Any, Literal
 
 from google.genai import types
 
-from .gemini_client import create_gemini_client
+from .gemini_client import (
+    DEFAULT_TRACK_JUDGE_MODEL,
+    GeminiGenerationParams,
+    create_gemini_client,
+    resolve_generation_params,
+)
 from .gemini_metrics import add_token_usage, estimate_model_cost_usd, extract_token_usage
 from .models import Action, TokenUsage, TrackGroupJudgment, TrackGroupResult, WarningItem
 from .prompts import load_prompt
 
 
-DEFAULT_TRACK_JUDGE_MODEL = "gemini-2.5-flash"
 TRACK_JUDGE_SYSTEM_PROMPT = load_prompt("track_judge_system.md")
 
 
@@ -59,10 +63,16 @@ def _build_payload(
     )
 
 
-def _build_generation_config() -> types.GenerateContentConfig:
+def _build_generation_config(
+    *,
+    temperature: float | None = None,
+    generation_params: GeminiGenerationParams | None = None,
+) -> types.GenerateContentConfig:
+    params = resolve_generation_params(generation_params, temperature=temperature)
     return types.GenerateContentConfig(
         system_instruction=TRACK_JUDGE_SYSTEM_PROMPT,
         response_mime_type="application/json",
+        **params.to_config_kwargs(),
     )
 
 
@@ -78,6 +88,8 @@ class TrackJudge:
         self,
         flash_client: Any | None = None,
         model: str = DEFAULT_TRACK_JUDGE_MODEL,
+        temperature: float | None = None,
+        generation_params: GeminiGenerationParams | None = None,
     ) -> None:
         self._judgments: list[TrackGroupJudgment] = []
         self._warnings: list[WarningItem] = []
@@ -87,6 +99,8 @@ class TrackJudge:
         self._estimated_llm_cost_usd = 0.0
         self.flash_client = flash_client
         self.model = model
+        self.temperature = temperature
+        self.generation_params = generation_params
 
     @property
     def llm_call_count(self) -> int:
@@ -189,7 +203,10 @@ class TrackJudge:
             response = runtime_client.models.generate_content(
                 model=self.model,
                 contents=payload,
-                config=_build_generation_config(),
+                config=_build_generation_config(
+                    temperature=self.temperature,
+                    generation_params=self.generation_params,
+                ),
             )
         except Exception as exc:
             self._warnings.append(

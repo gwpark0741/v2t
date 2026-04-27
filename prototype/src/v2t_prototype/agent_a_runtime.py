@@ -10,7 +10,14 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from .agent_a import build_agent_a_request, validate_agent_a_response
 from .gemini_metrics import estimate_model_cost_usd, extract_token_usage
-from .gemini_client import DEFAULT_AGENT_A_MODEL, create_gemini_client
+from .gemini_client import (
+    DEFAULT_AGENT_A_MODEL,
+    DEFAULT_GEMINI_VIDEO_FPS,
+    GeminiGenerationParams,
+    create_video_part_from_uri,
+    create_gemini_client,
+    resolve_generation_params,
+)
 from .models import AgentARequest, AgentAResponse, FullVideoAssetResult, TokenUsage
 from .prompts import load_prompt
 
@@ -107,11 +114,18 @@ def _build_agent_a_prompt(request: AgentARequest) -> str:
     )
 
 
-def _build_generation_config(system_prompt: str) -> types.GenerateContentConfig:
+def _build_generation_config(
+    system_prompt: str,
+    *,
+    temperature: float | None = None,
+    generation_params: GeminiGenerationParams | None = None,
+) -> types.GenerateContentConfig:
+    params = resolve_generation_params(generation_params, temperature=temperature)
     return types.GenerateContentConfig(
         system_instruction=system_prompt,
         response_mime_type="application/json",
         response_json_schema=_AgentAEntityRegistrySchema.model_json_schema(),
+        **params.to_config_kwargs(),
     )
 
 
@@ -122,6 +136,9 @@ def run_agent_a_runtime(
     model: str = DEFAULT_AGENT_A_MODEL,
     system_prompt: str = DEFAULT_AGENT_A_SYSTEM_PROMPT,
     prompt_header: str | None = None,
+    temperature: float | None = None,
+    generation_params: GeminiGenerationParams | None = None,
+    video_fps: float | None = DEFAULT_GEMINI_VIDEO_FPS,
 ) -> AgentARuntimeOutput:
     """
     End-to-end Agent A runtime:
@@ -133,16 +150,21 @@ def run_agent_a_runtime(
 
     request = build_agent_a_request(full_video_asset=full_video_asset)
     prompt = _build_agent_a_prompt(request)
-    video_part = types.Part.from_uri(
+    video_part = create_video_part_from_uri(
         file_uri=request.video_url,
         mime_type=request.video_mime_type,
+        video_fps=video_fps,
     )
 
     started_at = time.monotonic()
     gemini_response = runtime_client.models.generate_content(
         model=model,
         contents=[video_part, prompt],
-        config=_build_generation_config(system_prompt),
+        config=_build_generation_config(
+            system_prompt,
+            temperature=temperature,
+            generation_params=generation_params,
+        ),
     )
     latency_ms = (time.monotonic() - started_at) * 1000.0
     usage = extract_token_usage(gemini_response)

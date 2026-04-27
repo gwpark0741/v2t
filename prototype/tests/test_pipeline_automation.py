@@ -65,11 +65,22 @@ def test_run_pipeline_for_video_executes_all_stages_and_generates_report(tmp_pat
         "write_full_video_asset_artifacts",
         lambda *args, **kwargs: calls.append("write_stage2"),
     )
-    monkeypatch.setattr(
-        pipeline_automation,
-        "run_agent_a_runtime",
-        lambda result, client=None, model=None: calls.append(f"stage3:{model}") or agent_a_output,
-    )
+    def fake_run_agent_a_runtime(
+        result,
+        *,
+        client=None,
+        model=None,
+        temperature=None,
+        generation_params=None,
+        video_fps=None,
+    ):
+        _ = temperature
+        calls.append(
+            f"stage3:{model}:{generation_params.temperature}:{generation_params.top_p}:{video_fps}"
+        )
+        return agent_a_output
+
+    monkeypatch.setattr(pipeline_automation, "run_agent_a_runtime", fake_run_agent_a_runtime)
     monkeypatch.setattr(
         pipeline_automation,
         "write_agent_a_artifacts",
@@ -91,7 +102,11 @@ def test_run_pipeline_for_video_executes_all_stages_and_generates_report(tmp_pat
         lambda *args, **kwargs: calls.append("write_stage4"),
     )
     async def fake_run_agent_b_all_cuts_parallel(*args, **kwargs):
-        calls.append(f"stage5:{kwargs['model']}")
+        generation_params = kwargs["generation_params"]
+        calls.append(
+            f"stage5:{kwargs['model']}:{generation_params.temperature}:"
+            f"{generation_params.top_p}:{kwargs['video_fps']}"
+        )
         return agent_b_result
 
     monkeypatch.setattr(
@@ -107,7 +122,12 @@ def test_run_pipeline_for_video_executes_all_stages_and_generates_report(tmp_pat
     monkeypatch.setattr(
         pipeline_automation,
         "run_agent_c",
-        lambda *args, **kwargs: calls.append(f"stage6:{kwargs['flash_model']}") or agent_c_result,
+        lambda *args, **kwargs: calls.append(
+            "stage6:"
+            f"{kwargs['flash_model']}:"
+            f"{kwargs['track_judge_generation_params'].temperature}:"
+            f"{kwargs['track_judge_generation_params'].top_p}"
+        ) or agent_c_result,
     )
     monkeypatch.setattr(
         pipeline_automation,
@@ -130,6 +150,10 @@ def test_run_pipeline_for_video_executes_all_stages_and_generates_report(tmp_pat
         agent_a_model="agent-a-model",
         agent_b_model="agent-b-model",
         track_judge_model="track-judge-model",
+        top_p=0.8,
+        agent_a_temperature=0.0,
+        agent_b_temperature=0.0,
+        track_judge_temperature=0.0,
     )
 
     assert result.status == "completed"
@@ -141,13 +165,13 @@ def test_run_pipeline_for_video_executes_all_stages_and_generates_report(tmp_pat
         "write_stage1",
         "stage2:True:ffmpeg",
         "write_stage2",
-        "stage3:agent-a-model",
+        "stage3:agent-a-model:0.0:0.8:5.0",
         "write_stage3",
         "stage4",
         "write_stage4",
-        "stage5:agent-b-model",
+        "stage5:agent-b-model:0.0:0.8:5.0",
         "write_stage5",
-        "stage6:track-judge-model",
+        "stage6:track-judge-model:0.0:0.8",
         "write_stage6",
         "report",
     ]
@@ -197,6 +221,83 @@ def test_run_pipeline_for_video_records_failure_and_returns_failed_result(tmp_pa
         "stage": pipeline_automation.LOCAL_PREPROCESSING_STAGE_DIR,
         "video_path": str(video_path.resolve()),
         "message": "stage 01 exploded",
+    }
+
+
+def test_run_pipeline_for_video_applies_shared_model_and_generation_params(
+    tmp_path: Path,
+    monkeypatch,
+):
+    video_path = tmp_path / "sample.mp4"
+    video_path.write_text("video", encoding="utf-8")
+    runs_dir = tmp_path / "runs"
+    captured: dict[str, object] = {}
+
+    fake_client = object()
+    monkeypatch.setattr(pipeline_automation, "create_gemini_client", lambda: fake_client)
+    monkeypatch.setattr(pipeline_automation, "run_local_preprocessing", lambda path: object())
+    monkeypatch.setattr(pipeline_automation, "collect_local_preprocessing_warnings", lambda result: [])
+    monkeypatch.setattr(pipeline_automation, "write_local_preprocessing_artifacts", lambda *args, **kwargs: None)
+    monkeypatch.setattr(pipeline_automation, "prepare_full_video_asset", lambda *args, **kwargs: object())
+    monkeypatch.setattr(pipeline_automation, "write_full_video_asset_artifacts", lambda *args, **kwargs: None)
+
+    def fake_run_agent_a_runtime(result, *, client=None, model=None, generation_params=None, **kwargs):
+        captured["agent_a"] = (
+            model,
+            generation_params.temperature,
+            generation_params.seed,
+            kwargs["video_fps"],
+        )
+        return SimpleNamespace(response=SimpleNamespace(entity_registry="registry"))
+
+    monkeypatch.setattr(pipeline_automation, "run_agent_a_runtime", fake_run_agent_a_runtime)
+    monkeypatch.setattr(pipeline_automation, "write_agent_a_artifacts", lambda *args, **kwargs: None)
+    monkeypatch.setattr(pipeline_automation, "run_segment_prep", lambda *args, **kwargs: object())
+    monkeypatch.setattr(pipeline_automation, "write_segment_prep_artifacts", lambda *args, **kwargs: None)
+
+    async def fake_run_agent_b_all_cuts_parallel(*args, **kwargs):
+        params = kwargs["generation_params"]
+        captured["agent_b"] = (
+            kwargs["model"],
+            params.temperature,
+            params.seed,
+            kwargs["video_fps"],
+        )
+        return object()
+
+    monkeypatch.setattr(pipeline_automation, "run_agent_b_all_cuts_parallel", fake_run_agent_b_all_cuts_parallel)
+    monkeypatch.setattr(pipeline_automation, "write_agent_b_artifacts", lambda *args, **kwargs: None)
+
+    def fake_run_agent_c(*args, **kwargs):
+        params = kwargs["track_judge_generation_params"]
+        captured["track_judge"] = (kwargs["flash_model"], params.temperature, params.seed)
+        return object()
+
+    monkeypatch.setattr(pipeline_automation, "run_agent_c", fake_run_agent_c)
+    monkeypatch.setattr(pipeline_automation, "write_agent_c_artifacts", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        pipeline_automation,
+        "generate_pipeline_report",
+        lambda run_dir: run_dir / "pipeline_report.html",
+    )
+
+    result = pipeline_automation.run_pipeline_for_video(
+        video_path,
+        runs_dir=runs_dir,
+        run_id="shared_params",
+        model="gemini-3.1-pro-preview",
+        temperature=0.2,
+        seed=42,
+        video_fps=5.0,
+        agent_b_model="gemini-2.5-pro",
+        track_judge_temperature=0.0,
+    )
+
+    assert result.status == "completed"
+    assert captured == {
+        "agent_a": ("gemini-3.1-pro-preview", 0.2, 42, 5.0),
+        "agent_b": ("gemini-2.5-pro", 0.2, 42, 5.0),
+        "track_judge": ("gemini-3.1-pro-preview", 0.0, 42),
     }
 
 

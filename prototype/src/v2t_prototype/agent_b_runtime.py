@@ -14,7 +14,14 @@ from .agent_a_runtime import AgentARuntimeOutput
 from .agent_b import build_agent_b_cut_input, validate_agent_b_response
 from .entity_registry import derive_interaction_type, get_ambience_targets, get_sfx_targets
 from .gemini_metrics import add_token_usage, estimate_model_cost_usd, extract_token_usage
-from .gemini_client import create_gemini_client
+from .gemini_client import (
+    DEFAULT_AGENT_B_MODEL,
+    DEFAULT_GEMINI_VIDEO_FPS,
+    GeminiGenerationParams,
+    create_video_part_from_uri,
+    create_gemini_client,
+    resolve_generation_params,
+)
 from .models import (
     Action,
     AgentBAllCutsResult,
@@ -32,7 +39,6 @@ from .models import (
 from .prompts import load_prompt
 
 
-DEFAULT_AGENT_B_MODEL = "gemini-2.5-pro"
 DEFAULT_AGENT_B_SYSTEM_PROMPT = load_prompt("agent_b_system.md")
 AGENT_B_USER_PROMPT_TEMPLATE = load_prompt("agent_b_user.md")
 
@@ -87,11 +93,17 @@ def build_agent_b_user_prompt(input: AgentBCutInput) -> str:
     )
 
 
-def _build_generation_config() -> types.GenerateContentConfig:
+def _build_generation_config(
+    *,
+    temperature: float | None = None,
+    generation_params: GeminiGenerationParams | None = None,
+) -> types.GenerateContentConfig:
+    params = resolve_generation_params(generation_params, temperature=temperature)
     return types.GenerateContentConfig(
         system_instruction=DEFAULT_AGENT_B_SYSTEM_PROMPT,
         response_mime_type="application/json",
         response_json_schema=AgentBResponse.model_json_schema(),
+        **params.to_config_kwargs(),
     )
 
 
@@ -228,12 +240,16 @@ def run_agent_b_for_cut(
     client: Optional[genai.Client] = None,
     model: str = DEFAULT_AGENT_B_MODEL,
     max_retries: int = 2,
+    temperature: float | None = None,
+    generation_params: GeminiGenerationParams | None = None,
+    video_fps: float | None = DEFAULT_GEMINI_VIDEO_FPS,
 ) -> AgentBCutOutput:
     runtime_client = client or create_gemini_client()
     prompt = build_agent_b_user_prompt(input)
-    clip_part = types.Part.from_uri(
+    clip_part = create_video_part_from_uri(
         file_uri=input.clip_video_url,
         mime_type=input.clip_video_mime_type,
+        video_fps=video_fps,
     )
 
     retries_used = 0
@@ -246,7 +262,10 @@ def run_agent_b_for_cut(
             gemini_response = runtime_client.models.generate_content(
                 model=model,
                 contents=[clip_part, prompt],
-                config=_build_generation_config(),
+                config=_build_generation_config(
+                    temperature=temperature,
+                    generation_params=generation_params,
+                ),
             )
         except Exception as exc:
             total_latency_ms += (time.monotonic() - started_at) * 1000.0
@@ -354,6 +373,9 @@ async def run_agent_b_all_cuts_parallel(
     model: str = DEFAULT_AGENT_B_MODEL,
     max_concurrency: int = 5,
     max_retries: int = 2,
+    temperature: float | None = None,
+    generation_params: GeminiGenerationParams | None = None,
+    video_fps: float | None = DEFAULT_GEMINI_VIDEO_FPS,
 ) -> AgentBAllCutsResult:
     runtime_client = client or create_gemini_client()
     cut_map = {cut.id: cut for cut in agent_a_output.request.cuts}
@@ -378,6 +400,9 @@ async def run_agent_b_all_cuts_parallel(
                 client=runtime_client,
                 model=model,
                 max_retries=max_retries,
+                temperature=temperature,
+                generation_params=generation_params,
+                video_fps=video_fps,
             )
 
     gathered = await asyncio.gather(

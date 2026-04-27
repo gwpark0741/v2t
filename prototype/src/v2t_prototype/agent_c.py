@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from .gemini_client import GeminiGenerationParams
 from .models import AgentBAllCutsResult, AgentCResult, EntityRegistry, PipelineResult, WarningItem
 from .synthesizer import synthesize_tracks
 from .track_judge import DEFAULT_TRACK_JUDGE_MODEL, TrackJudge
@@ -43,6 +44,8 @@ def run_agent_c(
     *,
     flash_client: Any | None = None,
     flash_model: str = DEFAULT_TRACK_JUDGE_MODEL,
+    track_judge_temperature: float | None = None,
+    track_judge_generation_params: GeminiGenerationParams | None = None,
 ) -> AgentCResult:
     _ = entity_registry
     actions = [
@@ -50,7 +53,12 @@ def run_agent_c(
         for cut_output in agent_b_all_cuts.cut_outputs
         for action in cut_output.actions
     ]
-    track_judge = TrackJudge(flash_client=flash_client, model=flash_model)
+    track_judge = TrackJudge(
+        flash_client=flash_client,
+        model=flash_model,
+        temperature=track_judge_temperature,
+        generation_params=track_judge_generation_params,
+    )
     pipeline_result = synthesize_tracks(
         actions,
         track_judge=track_judge,

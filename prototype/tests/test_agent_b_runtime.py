@@ -16,6 +16,7 @@ from v2t_prototype.agent_b_runtime import (
     run_agent_b_all_cuts_parallel,
     run_agent_b_for_cut,
 )
+from v2t_prototype.gemini_client import GeminiGenerationParams
 from v2t_prototype.models import (
     AgentARequest,
     AgentAResponse,
@@ -157,9 +158,7 @@ def test_run_agent_b_for_cut_success_rewrites_reassign_and_forces_boundary_false
     )
     client = _mock_client_with_texts(response_text)
 
-    with patch("v2t_prototype.agent_b_runtime.types.Part.from_uri") as part_from_uri:
-        part_from_uri.return_value = SimpleNamespace(content="clip")
-        output = run_agent_b_for_cut(input_model, client=client)
+    output = run_agent_b_for_cut(input_model, client=client)
 
     assert output.model == DEFAULT_AGENT_B_MODEL
     assert output.validation_issues == []
@@ -167,10 +166,44 @@ def test_run_agent_b_for_cut_success_rewrites_reassign_and_forces_boundary_false
     assert output.actions[0].primary_source_id == "samurai_armor"
     assert output.actions[0].interaction_type == "sfx"
     assert output.actions[0].boundary_flag is False
-    part_from_uri.assert_called_once_with(
-        file_uri=input_model.clip_video_url,
-        mime_type=input_model.clip_video_mime_type,
+    video_part = client.models.generate_content.call_args.kwargs["contents"][0]
+    assert video_part.video_metadata.fps == 5.0
+
+
+def test_run_agent_b_for_cut_accepts_temperature():
+    input_model = _make_runtime_input()
+    response_text = json.dumps({"actions": [_valid_action_dict(boundary_flag=False)]})
+    client = _mock_client_with_texts(response_text)
+
+    run_agent_b_for_cut(input_model, client=client, temperature=0.0)
+
+    config = client.models.generate_content.call_args.kwargs["config"]
+    assert config.temperature == 0.0
+
+
+def test_run_agent_b_for_cut_accepts_generation_params():
+    input_model = _make_runtime_input()
+    response_text = json.dumps({"actions": [_valid_action_dict(boundary_flag=False)]})
+    client = _mock_client_with_texts(response_text)
+
+    run_agent_b_for_cut(
+        input_model,
+        client=client,
+        generation_params=GeminiGenerationParams(
+            temperature=0.2,
+            top_p=0.8,
+            top_k=32,
+            seed=42,
+            max_output_tokens=2048,
+        ),
     )
+
+    config = client.models.generate_content.call_args.kwargs["config"]
+    assert config.temperature == 0.2
+    assert config.top_p == 0.8
+    assert config.top_k == 32
+    assert config.seed == 42
+    assert config.max_output_tokens == 2048
 
 
 def test_run_agent_b_for_cut_normalizes_local_event_time_to_absolute_time():
@@ -193,9 +226,7 @@ def test_run_agent_b_for_cut_normalizes_local_event_time_to_absolute_time():
     )
     client = _mock_client_with_texts(response_text)
 
-    with patch("v2t_prototype.agent_b_runtime.types.Part.from_uri") as part_from_uri:
-        part_from_uri.return_value = SimpleNamespace(content="clip")
-        output = run_agent_b_for_cut(input_model, client=client)
+    output = run_agent_b_for_cut(input_model, client=client)
 
     assert output.validation_issues == []
     assert output.actions[0].event.type == "onset"
@@ -222,9 +253,7 @@ def test_run_agent_b_for_cut_derives_interaction_type_from_reassigned_ambience_t
     )
     client = _mock_client_with_texts(response_text)
 
-    with patch("v2t_prototype.agent_b_runtime.types.Part.from_uri") as part_from_uri:
-        part_from_uri.return_value = SimpleNamespace(content="clip")
-        output = run_agent_b_for_cut(input_model, client=client)
+    output = run_agent_b_for_cut(input_model, client=client)
 
     assert output.validation_issues == []
     assert output.actions[0].primary_source_id == "wind"
@@ -246,9 +275,7 @@ def test_run_agent_b_for_cut_normalizes_interaction_type_for_known_target_withou
     )
     client = _mock_client_with_texts(response_text)
 
-    with patch("v2t_prototype.agent_b_runtime.types.Part.from_uri") as part_from_uri:
-        part_from_uri.return_value = SimpleNamespace(content="clip")
-        output = run_agent_b_for_cut(input_model, client=client)
+    output = run_agent_b_for_cut(input_model, client=client)
 
     assert client.models.generate_content.call_count == 1
     assert output.validation_issues == []
@@ -263,9 +290,7 @@ def test_run_agent_b_for_cut_retries_after_parse_error():
         json.dumps({"actions": [_valid_action_dict(boundary_flag=False)]}),
     )
 
-    with patch("v2t_prototype.agent_b_runtime.types.Part.from_uri") as part_from_uri:
-        part_from_uri.return_value = SimpleNamespace(content="clip")
-        output = run_agent_b_for_cut(input_model, client=client, max_retries=2)
+    output = run_agent_b_for_cut(input_model, client=client, max_retries=2)
 
     assert output.validation_issues == []
     assert len(output.actions) == 1
@@ -283,11 +308,7 @@ def test_run_agent_b_for_cut_retries_after_retryable_generation_error():
         ),
     ]
 
-    with (
-        patch("v2t_prototype.agent_b_runtime.types.Part.from_uri") as part_from_uri,
-        patch("v2t_prototype.agent_b_runtime.time.sleep") as sleep_mock,
-    ):
-        part_from_uri.return_value = SimpleNamespace(content="clip")
+    with patch("v2t_prototype.agent_b_runtime.time.sleep") as sleep_mock:
         output = run_agent_b_for_cut(input_model, client=client, max_retries=1)
 
     assert output.validation_issues == []
@@ -301,10 +322,8 @@ def test_run_agent_b_for_cut_raises_non_retryable_generation_error():
     client = Mock()
     client.models.generate_content.side_effect = RuntimeError("400 INVALID_ARGUMENT")
 
-    with patch("v2t_prototype.agent_b_runtime.types.Part.from_uri") as part_from_uri:
-        part_from_uri.return_value = SimpleNamespace(content="clip")
-        with pytest.raises(RuntimeError, match="400 INVALID_ARGUMENT"):
-            run_agent_b_for_cut(input_model, client=client, max_retries=2)
+    with pytest.raises(RuntimeError, match="400 INVALID_ARGUMENT"):
+        run_agent_b_for_cut(input_model, client=client, max_retries=2)
 
 
 def test_agent_b_system_prompt_excludes_voice_and_mentions_leaf_mapping():
@@ -346,8 +365,17 @@ def test_run_agent_b_all_cuts_parallel_aggregates_outputs():
         ),
     ]
 
-    def fake_run_for_cut(input_model, *, client=None, model=DEFAULT_AGENT_B_MODEL, max_retries=2):
-        _ = client, model, max_retries
+    def fake_run_for_cut(
+        input_model,
+        *,
+        client=None,
+        model=DEFAULT_AGENT_B_MODEL,
+        max_retries=2,
+        temperature=None,
+        generation_params=None,
+        video_fps=None,
+    ):
+        _ = client, model, max_retries, temperature, generation_params, video_fps
         for output in cut_outputs:
             if output.cut_id == input_model.cut_id:
                 return output
