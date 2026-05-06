@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import argparse
+import html
 import os
+import re
 import shutil
 import zipfile
 from dataclasses import dataclass
@@ -18,7 +20,6 @@ class ShareSource:
     final_output_path: Path
     report_path: Path
     clip_paths: tuple[Path, ...]
-    bundle_root: Path
 
 
 @dataclass(frozen=True)
@@ -26,6 +27,9 @@ class ShareExportResult:
     run_dir: Path
     output_path: Path
     share_type: Literal["first_share", "second_share"]
+
+
+_SRC_ATTR_RE = re.compile(r'(?P<prefix>\bsrc=)(?P<quote>["\'])(?P<value>.*?)(?P=quote)')
 
 
 def _share_slug(run_dir: Path, video_path: Path) -> str:
@@ -54,14 +58,12 @@ def _load_share_source(run_dir: Path) -> ShareSource:
     clip_paths = tuple(
         sorted(path.resolve() for path in clips_dir.glob("*.mp4") if path.is_file())
     )
-    bundle_root = Path(os.path.commonpath([str(resolved_run_dir), str(video_path)])).resolve()
     return ShareSource(
         run_dir=resolved_run_dir,
         video_path=video_path,
         final_output_path=final_output_path,
         report_path=report_path,
         clip_paths=clip_paths,
-        bundle_root=bundle_root,
     )
 
 
@@ -78,22 +80,39 @@ def export_first_share(run_dir: Path, *, output_root: Path) -> ShareExportResult
     )
 
 
+def _rewrite_report_for_flat_bundle(source: ShareSource) -> str:
+    report_html = source.report_path.read_text(encoding="utf-8")
+    report_dir = source.report_path.parent.resolve()
+    src_map = {
+        os.path.relpath(source.video_path.resolve(), report_dir): source.video_path.name,
+    }
+    for clip_path in source.clip_paths:
+        src_map[os.path.relpath(clip_path.resolve(), report_dir)] = f"clips/{clip_path.name}"
+
+    def _replace_src(match: re.Match[str]) -> str:
+        raw_value = html.unescape(match.group("value"))
+        rewritten = src_map.get(raw_value)
+        if rewritten is None:
+            return match.group(0)
+        quote = match.group("quote")
+        return f'{match.group("prefix")}{quote}{html.escape(rewritten, quote=True)}{quote}'
+
+    return _SRC_ATTR_RE.sub(_replace_src, report_html)
+
+
 def export_second_share_bundle(run_dir: Path, *, output_root: Path) -> ShareExportResult:
     source = _load_share_source(run_dir)
     output_dir = output_root.expanduser().resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
     bundle_path = output_dir / f"{_share_slug(source.run_dir, source.video_path)}.report_bundle.zip"
     bundle_prefix = _share_slug(source.run_dir, source.video_path)
-
-    def _arcname(path: Path) -> str:
-        relative_path = path.resolve().relative_to(source.bundle_root)
-        return str(Path(bundle_prefix) / relative_path)
+    rewritten_report = _rewrite_report_for_flat_bundle(source)
 
     with zipfile.ZipFile(bundle_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        archive.write(source.video_path, arcname=_arcname(source.video_path))
-        archive.write(source.report_path, arcname=_arcname(source.report_path))
+        archive.write(source.video_path, arcname=str(Path(bundle_prefix) / source.video_path.name))
+        archive.writestr(str(Path(bundle_prefix) / "report.html"), rewritten_report)
         for clip_path in source.clip_paths:
-            archive.write(clip_path, arcname=_arcname(clip_path))
+            archive.write(clip_path, arcname=str(Path(bundle_prefix) / "clips" / clip_path.name))
     return ShareExportResult(
         run_dir=source.run_dir,
         output_path=bundle_path,

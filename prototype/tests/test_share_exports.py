@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import zipfile
 from pathlib import Path
 
@@ -25,7 +26,13 @@ def _make_run_dir(tmp_path: Path) -> tuple[Path, Path]:
         json.dumps({"pipeline_result": {"track_manifest": {"tracks": []}, "unresolved_unknowns": [], "warnings": []}}),
         encoding="utf-8",
     )
-    (run_dir / "pipeline_report.html").write_text("<html>report</html>", encoding="utf-8")
+    report_path = run_dir / "pipeline_report.html"
+    source_src = os.path.relpath(video_path.resolve(), report_path.parent.resolve())
+    report_path.write_text(
+        f'<html><body><video src="{source_src}"></video>'
+        '<video src="stage_04_segment_prep/clips/CUT_001.mp4"></video></body></html>',
+        encoding="utf-8",
+    )
     clips_dir = run_dir / "stage_04_segment_prep" / "clips"
     clips_dir.mkdir(parents=True, exist_ok=True)
     (clips_dir / "CUT_001.mp4").write_text("clip-bytes", encoding="utf-8")
@@ -55,9 +62,13 @@ def test_export_second_share_bundle_zips_video_and_report(tmp_path: Path):
     with zipfile.ZipFile(result.output_path) as archive:
         slug = f"{video_path.stem}__{run_dir.name}"
         assert sorted(archive.namelist()) == [
-            f"{slug}/runs/run_001/pipeline_report.html",
-            f"{slug}/runs/run_001/stage_04_segment_prep/clips/CUT_001.mp4",
-            f"{slug}/videos/sample.mp4",
+            f"{slug}/clips/CUT_001.mp4",
+            f"{slug}/report.html",
+            f"{slug}/sample.mp4",
         ]
-        assert archive.read(f"{slug}/runs/run_001/pipeline_report.html").decode("utf-8") == "<html>report</html>"
-        assert archive.read(f"{slug}/runs/run_001/stage_04_segment_prep/clips/CUT_001.mp4").decode("utf-8") == "clip-bytes"
+        report_html = archive.read(f"{slug}/report.html").decode("utf-8")
+        assert 'src="sample.mp4"' in report_html
+        assert 'src="clips/CUT_001.mp4"' in report_html
+        assert "../../../videos/sample.mp4" not in report_html
+        assert "stage_04_segment_prep/clips/CUT_001.mp4" not in report_html
+        assert archive.read(f"{slug}/clips/CUT_001.mp4").decode("utf-8") == "clip-bytes"
