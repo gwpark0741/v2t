@@ -7,6 +7,8 @@ from v2t_prototype.models import (
     AgentAResponse,
     Ambience,
     Cut,
+    CutMapping,
+    CutSourceMapping,
     Entity,
     Entity_Child,
     EntityRegistry,
@@ -70,11 +72,25 @@ def _make_sample_runtime_output(full_video_asset: FullVideoAssetResult) -> Agent
                 )
             ],
         ),
+        cut_mapping=CutMapping(
+            mappings=[
+                CutSourceMapping(
+                    cut_id="CUT_001",
+                    sfx_source_ids=["lead_footstep"],
+                    ambience_source_ids=["wind"],
+                ),
+                CutSourceMapping(
+                    cut_id="CUT_002",
+                    sfx_source_ids=[],
+                    ambience_source_ids=["wind"],
+                ),
+            ]
+        ),
     )
     return AgentARuntimeOutput(
         request=request,
         response=response,
-        raw_response_text=response.entity_registry.model_dump_json(),
+        raw_response_text=response.model_dump_json(),
     )
 
 
@@ -91,6 +107,9 @@ def test_build_agent_a_report_html_includes_hierarchy_sections():
     assert "Unknowns" in html
     assert "lead footstep" in html
     assert "wrapped item behind the lead actor" in html
+    assert "Cut-to-Registry Mapping" in html
+    assert "Mapped SFX Sources" in html
+    assert "lead_footstep" in html
     assert "Validation Summary" in html
     assert "PASS" in html
 
@@ -107,3 +126,4 @@ def test_write_agent_a_report_creates_file(tmp_path: Path):
     assert "<h1>Report</h1>" in content
     assert "CUT_002" in content
     assert "Unknowns" in content
+    assert "Cut-to-Registry Mapping" in content

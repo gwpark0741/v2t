@@ -8,7 +8,8 @@ from typing import Iterable, TypeAlias
 from pydantic import BaseModel
 
 from .agent_a import validate_agent_a_response
-from .agent_a_runtime import AgentARuntimeOutput
+from .agent_a_runtime import AgentARuntimeOutput, validate_cut_mapping
+from .entity_registry import get_ambience_targets, get_cut_hints, get_sfx_targets
 from .models import Ambience, Entity, Entity_Child, FullVideoAssetResult, Unknown
 
 
@@ -85,6 +86,73 @@ def _render_validation_summary(issues: list[str]) -> str:
     return "<p>FAIL - Validation issues detected.</p><ul>" + items + "</ul>"
 
 
+def _render_source_mapping_list(
+    source_ids: list[str],
+    *,
+    label_by_id: dict[str, str],
+    empty_message: str,
+) -> str:
+    if not source_ids:
+        return f"<span class='muted'>{escape(empty_message)}</span>"
+
+    items = []
+    for source_id in source_ids:
+        label = label_by_id.get(source_id)
+        suffix = f" - {label}" if label else ""
+        items.append(f"<li><code>{escape(source_id)}</code>{escape(suffix)}</li>")
+    return "<ul class='mapping-list'>" + "".join(items) + "</ul>"
+
+
+def _render_cut_mapping_table(
+    full_video_asset: FullVideoAssetResult,
+    runtime_output: AgentARuntimeOutput,
+) -> str:
+    response = runtime_output.response
+    sfx_label_by_id = {
+        source_id: target.label for source_id, target in get_sfx_targets(response.entity_registry).items()
+    }
+    ambience_label_by_id = {
+        source_id: target.label
+        for source_id, target in get_ambience_targets(response.entity_registry).items()
+    }
+
+    rows: list[str] = []
+    for cut in full_video_asset.local.cuts:
+        mapping = get_cut_hints(response.cut_mapping, cut.id)
+        if mapping is None:
+            rows.append(
+                "<tr>"
+                f"<td>{escape(cut.id)}</td>"
+                f"<td>{_format_seconds(cut.start_time)}</td>"
+                f"<td>{_format_seconds(cut.end_time)}</td>"
+                "<td><span class='muted'>No mapping found.</span></td>"
+                "<td><span class='muted'>No mapping found.</span></td>"
+                "</tr>"
+            )
+            continue
+
+        rows.append(
+            "<tr>"
+            f"<td>{escape(mapping.cut_id)}</td>"
+            f"<td>{_format_seconds(cut.start_time)}</td>"
+            f"<td>{_format_seconds(cut.end_time)}</td>"
+            f"<td>{_render_source_mapping_list(mapping.sfx_source_ids, label_by_id=sfx_label_by_id, empty_message='No mapped sfx sources.')}</td>"
+            f"<td>{_render_source_mapping_list(mapping.ambience_source_ids, label_by_id=ambience_label_by_id, empty_message='No mapped ambience sources.')}</td>"
+            "</tr>"
+        )
+
+    return (
+        "<table>"
+        "<thead>"
+        "<tr><th>Cut ID</th><th>Start</th><th>End</th><th>Mapped SFX Sources</th><th>Mapped Ambience Sources</th></tr>"
+        "</thead>"
+        "<tbody>"
+        f"{''.join(rows)}"
+        "</tbody>"
+        "</table>"
+    )
+
+
 def _render_json_block(raw_text: str) -> str:
     content = raw_text
     try:
@@ -135,6 +203,13 @@ def build_agent_a_report_html(
         )
 
     issues = validate_agent_a_response(full_video_asset, response)
+    issues.extend(
+        validate_cut_mapping(
+            response.cut_mapping,
+            response.entity_registry,
+            [cut.id for cut in request.cuts],
+        )
+    )
     issue_count = len(issues)
     total_entities = (
         len(response.entity_registry.entities)
@@ -224,6 +299,12 @@ def build_agent_a_report_html(
       color: var(--muted);
       font-weight: 600;
     }}
+    code {{
+      background: #eef1f7;
+      border-radius: 4px;
+      padding: 1px 4px;
+      font-size: 12px;
+    }}
     .entity-section {{
       margin-bottom: 12px;
     }}
@@ -249,6 +330,10 @@ def build_agent_a_report_html(
       line-height: 1.45;
       overflow-x: auto;
       white-space: pre-wrap;
+    }}
+    .mapping-list {{
+      margin: 0;
+      padding-left: 18px;
     }}
     .status-pill {{
       display: inline-block;
@@ -344,6 +429,10 @@ def build_agent_a_report_html(
       {_render_entity_tree('Entities', response.entity_registry.entities)}
       {_render_entity_tree('Ambience', response.entity_registry.ambience)}
       {_render_unknown_list('Unknowns', response.entity_registry.unknowns)}
+    </div>
+    <div class=\"card\">
+      <h2>Cut-to-Registry Mapping</h2>
+      {_render_cut_mapping_table(full_video_asset, runtime_output)}
     </div>
     <div class=\"card\">
       <h2>Raw Gemini JSON Text</h2>

@@ -110,7 +110,16 @@ def _build_run_dir(tmp_path: Path) -> Path:
                         }
                     ],
                     "unknowns": [],
-                }
+                },
+                "cut_mapping": {
+                    "mappings": [
+                        {
+                            "cut_id": "CUT_001",
+                            "sfx_source_ids": ["char_001", "obj_001"],
+                            "ambience_source_ids": ["amb_001"],
+                        }
+                    ]
+                },
             },
         },
     )
@@ -240,6 +249,10 @@ def test_generate_pipeline_report_writes_combined_html(tmp_path: Path):
     assert "act_CUT_001_001" in html
     assert "obj_001__sfx__onset" in html
     assert "single_action" in html
+    assert "Cut-to-Registry Mapping" in html
+    assert "Mapped SFX Sources" in html
+    assert "char_001" in html
+    assert "amb_001" in html
     assert "data-tab-target='cuts'" in html
     assert "pipeline-report-source-video" in html
 
