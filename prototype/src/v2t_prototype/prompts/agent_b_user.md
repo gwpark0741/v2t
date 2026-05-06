@@ -12,3 +12,5 @@ ambience_targets (map background/environmental layers here):
 {ambience_targets_json}
 
 {unknowns_section}
+
+{cut_hints_section}

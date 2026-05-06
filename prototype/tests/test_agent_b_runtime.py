@@ -12,6 +12,7 @@ from v2t_prototype.agent_b import build_agent_b_cut_input
 from v2t_prototype.agent_b_runtime import (
     DEFAULT_AGENT_B_MODEL,
     DEFAULT_AGENT_B_SYSTEM_PROMPT,
+    build_cut_hints_section,
     build_agent_b_user_prompt,
     run_agent_b_all_cuts_parallel,
     run_agent_b_for_cut,
@@ -23,6 +24,8 @@ from v2t_prototype.models import (
     AgentBCutOutput,
     Ambience,
     Cut,
+    CutMapping,
+    CutSourceMapping,
     Entity,
     Entity_Child,
     EntityRegistry,
@@ -84,7 +87,23 @@ def _agent_a_output() -> AgentARuntimeOutput:
         },
         cuts=[_cut("CUT_001", 0.0, 4.0), _cut("CUT_002", 4.0, 8.0)],
     )
-    response = AgentAResponse(entity_registry=_entity_registry())
+    response = AgentAResponse(
+        entity_registry=_entity_registry(),
+        cut_mapping=CutMapping(
+            mappings=[
+                CutSourceMapping(
+                    cut_id="CUT_001",
+                    sfx_source_ids=["samurai_armor"],
+                    ambience_source_ids=["wind"],
+                ),
+                CutSourceMapping(
+                    cut_id="CUT_002",
+                    sfx_source_ids=[],
+                    ambience_source_ids=[],
+                ),
+            ]
+        ),
+    )
     return AgentARuntimeOutput(
         request=request,
         response=response,
@@ -94,6 +113,18 @@ def _agent_a_output() -> AgentARuntimeOutput:
 
 def _make_runtime_input():
     return build_agent_b_cut_input(_clip(), _cut(), _entity_registry())
+
+
+def _cut_mapping() -> CutMapping:
+    return CutMapping(
+        mappings=[
+            CutSourceMapping(
+                cut_id="CUT_001",
+                sfx_source_ids=["samurai_armor", "tree"],
+                ambience_source_ids=["wind"],
+            )
+        ]
+    )
 
 
 def _valid_action_dict(**overrides):
@@ -332,10 +363,11 @@ def test_agent_b_system_prompt_excludes_voice_and_mentions_leaf_mapping():
     assert "ambience_targets" in DEFAULT_AGENT_B_SYSTEM_PROMPT
     assert "Do not create actions for dialogue" in DEFAULT_AGENT_B_SYSTEM_PROMPT
     assert "Never use an id from unknowns" in DEFAULT_AGENT_B_SYSTEM_PROMPT
+    assert "If visually evidenced: create the corresponding action." in DEFAULT_AGENT_B_SYSTEM_PROMPT
 
 
 def test_build_agent_b_user_prompt_splits_target_sections():
-    prompt = build_agent_b_user_prompt(_make_runtime_input())
+    prompt = build_agent_b_user_prompt(_make_runtime_input(), _cut_mapping())
 
     assert "sfx_targets (map foreground sound events here):" in prompt
     assert "ambience_targets (map background/environmental layers here):" in prompt
@@ -343,6 +375,14 @@ def test_build_agent_b_user_prompt_splits_target_sections():
     assert '"id": "tree"' in prompt
     assert '"id": "wind"' in prompt
     assert '"id": "unknown_1"' in prompt
+    assert "Expected sources for this cut:" in prompt
+    assert "samurai_armor" in prompt
+    assert "If not visually evidenced: skip it. Do not create actions you cannot see." in prompt
+
+
+def test_build_cut_hints_section_returns_none_message_for_empty_mapping():
+    assert build_cut_hints_section(None) == "Expected sources for this cut: none"
+    assert build_cut_hints_section(CutSourceMapping(cut_id="CUT_001")) == "Expected sources for this cut: none"
 
 
 def test_run_agent_b_all_cuts_parallel_aggregates_outputs():
@@ -368,6 +408,7 @@ def test_run_agent_b_all_cuts_parallel_aggregates_outputs():
     def fake_run_for_cut(
         input_model,
         *,
+        cut_mapping=None,
         client=None,
         model=DEFAULT_AGENT_B_MODEL,
         max_retries=2,
@@ -376,6 +417,7 @@ def test_run_agent_b_all_cuts_parallel_aggregates_outputs():
         video_fps=None,
     ):
         _ = client, model, max_retries, temperature, generation_params, video_fps
+        assert cut_mapping == agent_a_output.response.cut_mapping
         for output in cut_outputs:
             if output.cut_id == input_model.cut_id:
                 return output

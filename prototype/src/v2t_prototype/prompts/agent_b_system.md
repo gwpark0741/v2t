@@ -100,3 +100,11 @@ RULES
    - Do NOT add new entities to the registry.
    - Do NOT modify cut boundaries.
    - Return ONLY a JSON object matching the provided schema.
+
+10. Expected sources:
+    - You will receive a list of expected sfx and ambience sources for this cut.
+    - For each expected source, actively look for visual evidence in the clip.
+    - If visually evidenced: create the corresponding action.
+    - If not visually evidenced: skip it. Do not create actions you cannot see.
+    - After processing expected sources, identify any additional sound events
+      not in the list and include them as well.

@@ -12,7 +12,12 @@ from pydantic import ValidationError
 
 from .agent_a_runtime import AgentARuntimeOutput
 from .agent_b import build_agent_b_cut_input, validate_agent_b_response
-from .entity_registry import derive_interaction_type, get_ambience_targets, get_sfx_targets
+from .entity_registry import (
+    derive_interaction_type,
+    get_ambience_targets,
+    get_cut_hints,
+    get_sfx_targets,
+)
 from .gemini_metrics import add_token_usage, estimate_model_cost_usd, extract_token_usage
 from .gemini_client import (
     DEFAULT_AGENT_B_MODEL,
@@ -29,6 +34,8 @@ from .models import (
     AgentBCutOutput,
     AgentBResponse,
     ContinuousEvent,
+    CutMapping,
+    CutSourceMapping,
     EntityRegistry,
     OnsetEvent,
     SegmentPrepResult,
@@ -53,7 +60,29 @@ _RETRYABLE_AGENT_B_ERROR_CODES = {429, 500, 502, 503, 504}
 _AGENT_B_RETRY_BACKOFF_SECONDS = (2.0, 5.0, 10.0)
 
 
-def build_agent_b_user_prompt(input: AgentBCutInput) -> str:
+def build_cut_hints_section(hints: CutSourceMapping | None) -> str:
+    if hints is None or (not hints.sfx_source_ids and not hints.ambience_source_ids):
+        return "Expected sources for this cut: none"
+
+    lines = [
+        "Expected sources for this cut:",
+        "For each source below, actively look for visual evidence in the clip.",
+        "If visually evidenced: create the action.",
+        "If not visually evidenced: skip it. Do not create actions you cannot see.",
+        "",
+    ]
+    if hints.sfx_source_ids:
+        lines.append("Expected sfx sources:")
+        for source_id in hints.sfx_source_ids:
+            lines.append(f"  - {source_id}")
+    if hints.ambience_source_ids:
+        lines.append("Expected ambience sources:")
+        for source_id in hints.ambience_source_ids:
+            lines.append(f"  - {source_id}")
+    return "\n".join(lines)
+
+
+def build_agent_b_user_prompt(input: AgentBCutInput, cut_mapping: CutMapping) -> str:
     sfx_targets_json = json.dumps(
         [
             {"id": target.id, "label": target.label}
@@ -83,6 +112,7 @@ def build_agent_b_user_prompt(input: AgentBCutInput) -> str:
         "unknowns (contextual reference only - do not use as primary_source_id):\n"
         f"{unknowns_json}"
     )
+    cut_hints_section = build_cut_hints_section(get_cut_hints(cut_mapping, input.cut_id))
     return AGENT_B_USER_PROMPT_TEMPLATE.format(
         cut_id=input.cut_id,
         cut_start_time=input.cut_start_time,
@@ -90,6 +120,7 @@ def build_agent_b_user_prompt(input: AgentBCutInput) -> str:
         sfx_targets_json=sfx_targets_json,
         ambience_targets_json=ambience_targets_json,
         unknowns_section=unknowns_section,
+        cut_hints_section=cut_hints_section,
     )
 
 
@@ -237,6 +268,7 @@ def _postprocess_action(
 def run_agent_b_for_cut(
     input: AgentBCutInput,
     *,
+    cut_mapping: CutMapping | None = None,
     client: Optional[genai.Client] = None,
     model: str = DEFAULT_AGENT_B_MODEL,
     max_retries: int = 2,
@@ -245,7 +277,7 @@ def run_agent_b_for_cut(
     video_fps: float | None = DEFAULT_GEMINI_VIDEO_FPS,
 ) -> AgentBCutOutput:
     runtime_client = client or create_gemini_client()
-    prompt = build_agent_b_user_prompt(input)
+    prompt = build_agent_b_user_prompt(input, cut_mapping or CutMapping())
     clip_part = create_video_part_from_uri(
         file_uri=input.clip_video_url,
         mime_type=input.clip_video_mime_type,
@@ -397,6 +429,7 @@ async def run_agent_b_all_cuts_parallel(
             return await asyncio.to_thread(
                 run_agent_b_for_cut,
                 agent_b_input,
+                cut_mapping=agent_a_output.response.cut_mapping,
                 client=runtime_client,
                 model=model,
                 max_retries=max_retries,
