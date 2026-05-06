@@ -56,6 +56,9 @@ VIDEO_EXTENSIONS = {
     ".webm",
 }
 
+DEFAULT_AUTOMATION_TEMPERATURE = 0.0
+DEFAULT_AUTOMATION_SEED = 42
+
 
 @dataclass(frozen=True)
 class PipelineAutomationResult:
@@ -151,10 +154,10 @@ def run_pipeline_for_video(
     agent_a_model: str | None = None,
     agent_b_model: str | None = None,
     track_judge_model: str | None = None,
-    temperature: float | None = None,
+    temperature: float | None = DEFAULT_AUTOMATION_TEMPERATURE,
     top_p: float | None = None,
     top_k: int | None = None,
-    seed: int | None = None,
+    seed: int | None = DEFAULT_AUTOMATION_SEED,
     max_output_tokens: int | None = None,
     video_fps: float | None = DEFAULT_GEMINI_VIDEO_FPS,
     agent_a_temperature: float | None = None,
@@ -334,10 +337,10 @@ def run_pipeline_for_inputs(
     agent_a_model: str | None = None,
     agent_b_model: str | None = None,
     track_judge_model: str | None = None,
-    temperature: float | None = None,
+    temperature: float | None = DEFAULT_AUTOMATION_TEMPERATURE,
     top_p: float | None = None,
     top_k: int | None = None,
-    seed: int | None = None,
+    seed: int | None = DEFAULT_AUTOMATION_SEED,
     max_output_tokens: int | None = None,
     video_fps: float | None = DEFAULT_GEMINI_VIDEO_FPS,
     agent_a_temperature: float | None = None,
@@ -424,8 +427,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--temperature",
         type=float,
-        default=None,
-        help="Optional Gemini generation temperature for all LLM stages unless stage-specific temperature is provided.",
+        default=DEFAULT_AUTOMATION_TEMPERATURE,
+        help=(
+            "Gemini generation temperature for all LLM stages unless stage-specific temperature "
+            f"is provided. Default: {DEFAULT_AUTOMATION_TEMPERATURE}."
+        ),
     )
     parser.add_argument(
         "--top-p",
@@ -442,8 +448,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--seed",
         type=int,
-        default=None,
-        help="Optional Gemini generation seed for all LLM stages.",
+        default=DEFAULT_AUTOMATION_SEED,
+        help=f"Gemini generation seed for all LLM stages. Default: {DEFAULT_AUTOMATION_SEED}.",
     )
     parser.add_argument(
         "--max-output-tokens",
