@@ -9,6 +9,7 @@ from google.genai import types
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from .agent_a import build_agent_a_request, validate_agent_a_response
+from .entity_registry import get_ambience_targets, get_sfx_targets
 from .gemini_metrics import estimate_model_cost_usd, extract_token_usage
 from .gemini_client import (
     DEFAULT_AGENT_A_MODEL,
@@ -18,7 +19,15 @@ from .gemini_client import (
     create_gemini_client,
     resolve_generation_params,
 )
-from .models import AgentARequest, AgentAResponse, FullVideoAssetResult, TokenUsage
+from .models import (
+    AgentARequest,
+    AgentAResponse,
+    CutMapping,
+    CutSourceMapping,
+    EntityRegistry,
+    FullVideoAssetResult,
+    TokenUsage,
+)
 from .prompts import load_prompt
 
 
@@ -92,6 +101,23 @@ class _AgentAEntityRegistrySchema(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class _AgentACutSourceMappingSchema(BaseModel):
+    cut_id: str
+    sfx_source_ids: list[str] = Field(default_factory=list)
+    ambience_source_ids: list[str] = Field(default_factory=list)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class _AgentAStructuredResponseSchema(BaseModel):
+    entities: list[_AgentAEntitySchema]
+    ambience: list[_AgentAAmbienceSchema]
+    unknowns: list[_AgentAUnknownSchema]
+    cut_mapping: list[_AgentACutSourceMappingSchema]
+
+    model_config = ConfigDict(extra="forbid")
+
+
 def _build_agent_a_prompt(request: AgentARequest) -> str:
     cuts_json = json.dumps(
         [
@@ -124,9 +150,91 @@ def _build_generation_config(
     return types.GenerateContentConfig(
         system_instruction=system_prompt,
         response_mime_type="application/json",
-        response_json_schema=_AgentAEntityRegistrySchema.model_json_schema(),
+        response_json_schema=_AgentAStructuredResponseSchema.model_json_schema(),
         **params.to_config_kwargs(),
     )
+
+
+def _parse_agent_a_response(raw_response_text: str) -> AgentAResponse:
+    try:
+        raw_payload = json.loads(raw_response_text)
+    except json.JSONDecodeError as exc:
+        raise AgentAResponseParseError("Failed to parse Agent A response JSON") from exc
+
+    if not isinstance(raw_payload, dict):
+        raise AgentAResponseParseError("Failed to parse Agent A response JSON")
+
+    try:
+        entity_registry = EntityRegistry.model_validate(
+            _AgentAEntityRegistrySchema.model_validate(
+                {
+                    "entities": raw_payload.get("entities"),
+                    "ambience": raw_payload.get("ambience"),
+                    "unknowns": raw_payload.get("unknowns"),
+                }
+            ).model_dump()
+        )
+        cut_mapping = CutMapping(
+            mappings=[
+                CutSourceMapping.model_validate(mapping.model_dump())
+                for mapping in (
+                    _AgentACutSourceMappingSchema.model_validate(entry)
+                    for entry in raw_payload.get("cut_mapping", [])
+                )
+            ]
+        )
+    except ValidationError as exc:
+        raise AgentAResponseParseError("Failed to parse Agent A response JSON") from exc
+
+    return AgentAResponse(
+        entity_registry=entity_registry,
+        cut_mapping=cut_mapping,
+    )
+
+
+def validate_cut_mapping(
+    cut_mapping: CutMapping,
+    registry: EntityRegistry,
+    expected_cut_ids: list[str],
+) -> list[str]:
+    issues: list[str] = []
+    valid_sfx_ids = set(get_sfx_targets(registry).keys())
+    valid_ambience_ids = set(get_ambience_targets(registry).keys())
+    expected_set = set(expected_cut_ids)
+
+    seen_cut_ids: set[str] = set()
+    duplicate_cut_ids: set[str] = set()
+    for mapping in cut_mapping.mappings:
+        if mapping.cut_id in seen_cut_ids:
+            duplicate_cut_ids.add(mapping.cut_id)
+        seen_cut_ids.add(mapping.cut_id)
+
+    for duplicate_cut_id in sorted(duplicate_cut_ids):
+        issues.append(f"cut_mapping: duplicate cut_id '{duplicate_cut_id}'")
+
+    for cut_id in expected_cut_ids:
+        if cut_id not in seen_cut_ids:
+            issues.append(f"cut_mapping: missing entry for cut_id '{cut_id}'")
+
+    for cut_id in seen_cut_ids:
+        if cut_id not in expected_set:
+            issues.append(f"cut_mapping: unexpected cut_id '{cut_id}'")
+
+    for mapping in cut_mapping.mappings:
+        if mapping.cut_id in duplicate_cut_ids:
+            continue
+        for source_id in mapping.sfx_source_ids:
+            if source_id not in valid_sfx_ids:
+                issues.append(
+                    f"cut_mapping[{mapping.cut_id}]: '{source_id}' is not a valid sfx leaf target"
+                )
+        for source_id in mapping.ambience_source_ids:
+            if source_id not in valid_ambience_ids:
+                issues.append(
+                    f"cut_mapping[{mapping.cut_id}]: '{source_id}' is not a valid ambience target"
+                )
+
+    return issues
 
 
 def run_agent_a_runtime(
@@ -174,12 +282,18 @@ def run_agent_a_runtime(
         raise AgentAResponseParseError("Gemini response did not include response.text")
 
     try:
-        entity_registry = _AgentAEntityRegistrySchema.model_validate_json(raw_response_text)
-        parsed_response = AgentAResponse(entity_registry=entity_registry.model_dump())
-    except ValidationError as exc:
-        raise AgentAResponseParseError("Failed to parse Agent A response JSON") from exc
+        parsed_response = _parse_agent_a_response(raw_response_text)
+    except AgentAResponseParseError:
+        raise
 
     issues = validate_agent_a_response(full_video_asset, parsed_response)
+    issues.extend(
+        validate_cut_mapping(
+            parsed_response.cut_mapping,
+            parsed_response.entity_registry,
+            [cut.id for cut in request.cuts],
+        )
+    )
     if issues:
         raise AgentAPostValidationError(issues)
 

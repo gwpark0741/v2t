@@ -4,11 +4,15 @@ from v2t_prototype.entity_registry import (
     derive_interaction_type,
     get_all_valid_targets,
     get_ambience_targets,
+    get_cut_hints,
     get_sfx_targets,
 )
 from v2t_prototype.models import (
     Action,
+    AgentAResponse,
     Ambience,
+    CutMapping,
+    CutSourceMapping,
     Entity,
     Entity_Child,
     EntityRegistry,
@@ -95,6 +99,22 @@ def test_registry_target_helpers_return_expected_nodes():
     assert sorted(get_all_valid_targets(registry)) == ["fighter_sword", "night_arena", "tree"]
 
 
+def test_get_cut_hints_returns_matching_mapping_or_none():
+    cut_mapping = CutMapping(
+        mappings=[
+            CutSourceMapping(
+                cut_id="CUT_001",
+                sfx_source_ids=["fighter_sword"],
+                ambience_source_ids=["night_arena"],
+            )
+        ]
+    )
+
+    assert get_cut_hints(cut_mapping, "CUT_001") == cut_mapping.mappings[0]
+    assert get_cut_hints(cut_mapping, "CUT_999") is None
+    assert get_cut_hints(CutMapping(), "CUT_001") is None
+
+
 def test_derive_interaction_type_matches_target_class():
     registry = EntityRegistry(
         entities=[
@@ -131,6 +151,46 @@ def test_action_requires_unknown_resolution_for_unknown_source():
         event=OnsetEvent(type="onset", timestamp=0.2),
     )
     assert action.unknown_resolution is not None
+
+
+def test_agent_a_response_cut_mapping_roundtrip_and_defaults():
+    response = AgentAResponse(
+        entity_registry=EntityRegistry(
+            entities=[Entity(id="tree", label="tree")],
+            ambience=[Ambience(id="wind", label="wind")],
+            unknowns=[],
+        ),
+        cut_mapping=CutMapping(
+            mappings=[
+                CutSourceMapping(
+                    cut_id="CUT_001",
+                    sfx_source_ids=["tree"],
+                    ambience_source_ids=["wind"],
+                )
+            ]
+        ),
+    )
+
+    payload = response.model_dump(mode="json")
+    assert payload["cut_mapping"]["mappings"][0]["cut_id"] == "CUT_001"
+    roundtrip = AgentAResponse.model_validate(payload)
+    assert roundtrip.cut_mapping.mappings[0].sfx_source_ids == ["tree"]
+
+    defaulted = AgentAResponse.model_validate({"entity_registry": {"entities": [], "ambience": [], "unknowns": []}})
+    assert defaulted.cut_mapping.mappings == []
+
+
+def test_agent_a_response_cut_mapping_default_is_not_shared():
+    first = AgentAResponse.model_validate(
+        {"entity_registry": {"entities": [], "ambience": [], "unknowns": []}}
+    )
+    second = AgentAResponse.model_validate(
+        {"entity_registry": {"entities": [], "ambience": [], "unknowns": []}}
+    )
+
+    first.cut_mapping.mappings.append(CutSourceMapping(cut_id="CUT_001"))
+
+    assert second.cut_mapping.mappings == []
 
 
 def test_action_missing_unknown_resolution_rejected():

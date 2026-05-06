@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Iterator, Literal, TypeAlias
 
-from .models import Ambience, Entity, EntityRegistry, Entity_Child, Unknown
+from .models import Ambience, CutMapping, CutSourceMapping, Entity, EntityRegistry, Entity_Child, Unknown
 
 
 TargetInteractionType: TypeAlias = Literal["sfx", "ambience"]
@@ -61,3 +61,10 @@ def build_leaf_index(registry: EntityRegistry) -> dict[str, RegistryLeaf]:
         **get_all_valid_targets(registry),
         **{unknown.id: unknown for unknown in registry.unknowns},
     }
+
+
+def get_cut_hints(cut_mapping: CutMapping, cut_id: str) -> CutSourceMapping | None:
+    for mapping in cut_mapping.mappings:
+        if mapping.cut_id == cut_id:
+            return mapping
+    return None

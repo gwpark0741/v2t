@@ -291,10 +291,25 @@ class EntityRegistry(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class CutSourceMapping(BaseModel):
+    cut_id: str
+    sfx_source_ids: List[str] = Field(default_factory=list)
+    ambience_source_ids: List[str] = Field(default_factory=list)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class CutMapping(BaseModel):
+    mappings: List[CutSourceMapping] = Field(default_factory=list)
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class AgentAResponse(BaseModel):
     """Agent A 출력 계약: 전역 entity registry."""
 
     entity_registry: EntityRegistry
+    cut_mapping: CutMapping = Field(default_factory=CutMapping)
 
     model_config = ConfigDict(extra="forbid")
 

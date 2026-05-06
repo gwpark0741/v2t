@@ -10,5 +10,6 @@ Authoritative video metadata:
 - duration_seconds: {duration_seconds}
 - resolution: {width}x{height}
 
-Authoritative cuts (use to understand scene structure and temporal boundaries):
+Authoritative cuts (produce one cut_mapping entry per cut, using the cut id
+field as cut_id in your output):
 {cuts_json}

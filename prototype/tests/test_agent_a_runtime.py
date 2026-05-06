@@ -13,12 +13,20 @@ from v2t_prototype import (
     AgentAPostValidationError,
     AgentAResponseParseError,
     Cut,
+    CutMapping,
+    CutSourceMapping,
+    Entity,
+    EntityRegistry,
     FullVideoAssetResult,
     LocalPreprocessingResult,
     VideoMetadata,
     run_agent_a_runtime,
 )
-from v2t_prototype.agent_a_runtime import DEFAULT_AGENT_A_SYSTEM_PROMPT
+from v2t_prototype.agent_a_runtime import (
+    DEFAULT_AGENT_A_SYSTEM_PROMPT,
+    _parse_agent_a_response,
+    validate_cut_mapping,
+)
 from v2t_prototype.gemini_client import GeminiGenerationParams, wait_for_uploaded_file_active
 
 
@@ -50,25 +58,39 @@ def _write_dummy_video_file(path: Path) -> None:
     path.write_bytes(b"dummy-video-content")
 
 
+def _valid_agent_a_response_payload() -> dict:
+    return {
+        "entities": [
+            {
+                "id": "baby",
+                "label": "baby",
+                "children": [
+                    {
+                        "id": "baby_footstep",
+                        "label": "baby footstep",
+                    }
+                ],
+            }
+        ],
+        "ambience": [],
+        "unknowns": [],
+        "cut_mapping": [
+            {
+                "cut_id": "CUT_001",
+                "sfx_source_ids": ["baby_footstep"],
+                "ambience_source_ids": [],
+            },
+            {
+                "cut_id": "CUT_002",
+                "sfx_source_ids": [],
+                "ambience_source_ids": [],
+            },
+        ],
+    }
+
+
 def _valid_agent_a_response_json() -> str:
-    return json.dumps(
-        {
-            "entities": [
-                {
-                    "id": "baby",
-                    "label": "baby",
-                    "children": [
-                        {
-                            "id": "baby_footstep",
-                            "label": "baby footstep",
-                        }
-                    ],
-                }
-            ],
-            "ambience": [],
-            "unknowns": [],
-        }
-    )
+    return json.dumps(_valid_agent_a_response_payload())
 
 
 def _usage_metadata(
@@ -149,11 +171,11 @@ def test_run_agent_a_runtime_success_with_structured_output_config():
     assert config.system_instruction == DEFAULT_AGENT_A_SYSTEM_PROMPT
     user_prompt = call_kwargs["contents"][1]
     assert "Analyze the attached full video" in user_prompt
-    assert "Authoritative cuts (use to understand scene structure and temporal boundaries):" in user_prompt
+    assert "produce one cut_mapping entry per cut" in user_prompt
     assert '"id": "CUT_001"' in user_prompt
     assert "You are Agent A" not in user_prompt
     response_schema = config.response_json_schema
-    assert response_schema["required"] == ["entities", "ambience", "unknowns"]
+    assert response_schema["required"] == ["entities", "ambience", "unknowns", "cut_mapping"]
     child_schema = response_schema["$defs"]["_AgentAEntityChildSchema"]
     assert "children" not in child_schema["properties"]
     video_part = call_kwargs["contents"][0]
@@ -204,6 +226,7 @@ def test_agent_a_prompt_includes_hierarchy_and_vocal_exclusion_rules():
     assert "EntityRegistry:" in DEFAULT_AGENT_A_SYSTEM_PROMPT
     assert "Ambience:" in DEFAULT_AGENT_A_SYSTEM_PROMPT
     assert "Example 1 - Entity with acoustically distinct children:" in DEFAULT_AGENT_A_SYSTEM_PROMPT
+    assert "After building the registry, produce a cut_mapping" in DEFAULT_AGENT_A_SYSTEM_PROMPT
 
 
 def test_run_agent_a_runtime_raises_on_invalid_json_response():
@@ -236,6 +259,7 @@ def test_run_agent_a_runtime_rejects_ambience_with_children_during_parse():
                     }
                 ],
                 "unknowns": [],
+                "cut_mapping": [],
             }
         )
     )
@@ -252,6 +276,7 @@ def test_run_agent_a_runtime_raises_on_post_validation_failure():
                 "entities": [{"id": "Baby", "label": "baby"}],
                 "ambience": [],
                 "unknowns": [],
+                "cut_mapping": [],
             }
         )
     )
@@ -259,6 +284,89 @@ def test_run_agent_a_runtime_raises_on_post_validation_failure():
     with pytest.raises(AgentAPostValidationError) as exc_info:
         run_agent_a_runtime(full_video_asset=full_video_asset, client=client)
     assert "Entity: invalid snake_case ID 'Baby'" in exc_info.value.issues
+
+
+def test_parse_agent_a_response_defaults_missing_cut_mapping_to_empty():
+    payload = _valid_agent_a_response_payload()
+    payload.pop("cut_mapping")
+    output = _parse_agent_a_response(json.dumps(payload))
+
+    assert output.cut_mapping.mappings == []
+
+
+def test_validate_cut_mapping_accepts_valid_mapping_and_ignores_order():
+    registry = EntityRegistry(
+        entities=[
+            Entity(
+                id="fighter",
+                label="fighter",
+                children=[
+                    {"id": "fighter_sword", "label": "fighter sword"},
+                ],
+            ),
+            Entity(id="tree", label="tree"),
+        ],
+        ambience=[{"id": "wind", "label": "wind"}],
+        unknowns=[],
+    )
+    cut_mapping = CutMapping(
+        mappings=[
+            CutSourceMapping(cut_id="CUT_002", sfx_source_ids=["tree"], ambience_source_ids=["wind"]),
+            CutSourceMapping(cut_id="CUT_001", sfx_source_ids=["fighter_sword"], ambience_source_ids=[]),
+        ]
+    )
+
+    issues = validate_cut_mapping(cut_mapping, registry, ["CUT_001", "CUT_002"])
+    assert issues == []
+
+
+def test_validate_cut_mapping_reports_missing_unexpected_and_duplicate_cuts():
+    registry = EntityRegistry(entities=[Entity(id="tree", label="tree")], ambience=[], unknowns=[])
+    cut_mapping = CutMapping(
+        mappings=[
+            CutSourceMapping(cut_id="CUT_001"),
+            CutSourceMapping(cut_id="CUT_001"),
+            CutSourceMapping(cut_id="CUT_999"),
+        ]
+    )
+
+    issues = validate_cut_mapping(cut_mapping, registry, ["CUT_001", "CUT_002"])
+    assert "cut_mapping: duplicate cut_id 'CUT_001'" in issues
+    assert "cut_mapping: missing entry for cut_id 'CUT_002'" in issues
+    assert "cut_mapping: unexpected cut_id 'CUT_999'" in issues
+
+
+def test_validate_cut_mapping_reports_invalid_source_ids():
+    registry = EntityRegistry(
+        entities=[
+            Entity(
+                id="fighter",
+                label="fighter",
+                children=[
+                    {"id": "fighter_sword", "label": "fighter sword"},
+                ],
+            ),
+            Entity(id="tree", label="tree"),
+        ],
+        ambience=[{"id": "wind", "label": "wind"}],
+        unknowns=[{"id": "unknown_1", "label": "unknown 1", "visual_description": "hidden object"}],
+    )
+    cut_mapping = CutMapping(
+        mappings=[
+            CutSourceMapping(
+                cut_id="CUT_001",
+                sfx_source_ids=["fighter", "unknown_1", "wind"],
+                ambience_source_ids=["tree", "unknown_1"],
+            )
+        ]
+    )
+
+    issues = validate_cut_mapping(cut_mapping, registry, ["CUT_001"])
+    assert "cut_mapping[CUT_001]: 'fighter' is not a valid sfx leaf target" in issues
+    assert "cut_mapping[CUT_001]: 'unknown_1' is not a valid sfx leaf target" in issues
+    assert "cut_mapping[CUT_001]: 'wind' is not a valid sfx leaf target" in issues
+    assert "cut_mapping[CUT_001]: 'tree' is not a valid ambience target" in issues
+    assert "cut_mapping[CUT_001]: 'unknown_1' is not a valid ambience target" in issues
 
 
 def test_wait_for_uploaded_file_active_returns_immediately_for_active_file():

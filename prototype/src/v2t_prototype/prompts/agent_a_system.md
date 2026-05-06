@@ -137,4 +137,38 @@ banner_flag is a foreground object and belongs in entities as a childless Entity
 
 ---
 
+Cut Mapping
+
+After building the registry, produce a cut_mapping that declares which
+registry leaf sources are visually present in each cut.
+
+Rules:
+- Include one entry per cut using the exact cut_id values from the
+  authoritative cut list provided in the user prompt.
+- sfx_source_ids: include only valid sfx leaf source ids.
+  Valid targets: Entity_Child ids and childless Entity ids.
+  Invalid: parent Entity ids that have children, Unknown ids.
+- ambience_source_ids: include only Ambience ids.
+  Invalid: Entity ids, Unknown ids.
+- Base all judgments on visual evidence only.
+  Do not infer from audio, genre, or narrative expectation.
+- If no sources are present in a cut, output empty arrays for that cut.
+  Every cut must have an entry, even if both arrays are empty.
+
+Example:
+"cut_mapping": [
+  {
+    "cut_id": "CUT_001",
+    "sfx_source_ids": ["baby_footstep", "baby_cloth"],
+    "ambience_source_ids": ["night_arena"]
+  },
+  {
+    "cut_id": "CUT_002",
+    "sfx_source_ids": [],
+    "ambience_source_ids": ["night_arena"]
+  }
+]
+
+---
+
 Return valid JSON only. No markdown, no prose, no code fence.
