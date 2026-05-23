@@ -56,8 +56,8 @@ def test_run_pipeline_for_video_executes_all_stages_and_generates_report(tmp_pat
     monkeypatch.setattr(
         pipeline_automation,
         "prepare_full_video_asset",
-        lambda result, client=None, ffmpeg_bin=None: calls.append(
-            f"stage2:{client is fake_client}:{ffmpeg_bin}"
+        lambda result, client=None, ffmpeg_bin=None, strip_audio=True: calls.append(
+            f"stage2:{client is fake_client}:{ffmpeg_bin}:{strip_audio}"
         ) or full_video_asset,
     )
     monkeypatch.setattr(
@@ -87,12 +87,12 @@ def test_run_pipeline_for_video_executes_all_stages_and_generates_report(tmp_pat
         lambda *args, **kwargs: calls.append("write_stage3"),
     )
 
-    def fake_run_segment_prep(result, *, ffmpeg_bin, clips_dir, client=None):
+    def fake_run_segment_prep(result, *, ffmpeg_bin, clips_dir, client=None, strip_audio=True):
         expected = runs_dir / "run_test" / pipeline_automation.SEGMENT_PREP_STAGE_DIR / "clips"
         assert clips_dir == expected
         assert ffmpeg_bin == "ffmpeg"
         assert client is fake_client
-        calls.append("stage4")
+        calls.append(f"stage4:{strip_audio}")
         return segment_prep
 
     monkeypatch.setattr(pipeline_automation, "run_segment_prep", fake_run_segment_prep)
@@ -163,11 +163,11 @@ def test_run_pipeline_for_video_executes_all_stages_and_generates_report(tmp_pat
         "stage1:sample.mp4",
         "warnings",
         "write_stage1",
-        "stage2:True:ffmpeg",
+        "stage2:True:ffmpeg:True",
         "write_stage2",
         "stage3:agent-a-model:0.0:0.8:5.0",
         "write_stage3",
-        "stage4",
+        "stage4:True",
         "write_stage4",
         "stage5:agent-b-model:0.0:0.8:5.0",
         "write_stage5",
@@ -175,6 +175,65 @@ def test_run_pipeline_for_video_executes_all_stages_and_generates_report(tmp_pat
         "write_stage6",
         "report",
     ]
+
+
+def test_run_pipeline_for_video_preserves_audio_when_requested(tmp_path: Path, monkeypatch):
+    video_path = tmp_path / "sample.mp4"
+    video_path.write_text("video", encoding="utf-8")
+    runs_dir = tmp_path / "runs"
+    captured: dict[str, object] = {}
+
+    fake_client = object()
+    monkeypatch.setattr(pipeline_automation, "create_gemini_client", lambda: fake_client)
+    monkeypatch.setattr(pipeline_automation, "run_local_preprocessing", lambda path: object())
+    monkeypatch.setattr(pipeline_automation, "collect_local_preprocessing_warnings", lambda result: [])
+    monkeypatch.setattr(pipeline_automation, "write_local_preprocessing_artifacts", lambda *args, **kwargs: None)
+
+    def fake_prepare_full_video_asset(result, *, client=None, ffmpeg_bin=None, strip_audio=True):
+        captured["stage2_strip_audio"] = strip_audio
+        return object()
+
+    monkeypatch.setattr(pipeline_automation, "prepare_full_video_asset", fake_prepare_full_video_asset)
+    monkeypatch.setattr(pipeline_automation, "write_full_video_asset_artifacts", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        pipeline_automation,
+        "run_agent_a_runtime",
+        lambda *args, **kwargs: SimpleNamespace(response=SimpleNamespace(entity_registry="registry")),
+    )
+    monkeypatch.setattr(pipeline_automation, "write_agent_a_artifacts", lambda *args, **kwargs: None)
+
+    def fake_run_segment_prep(result, *, ffmpeg_bin, clips_dir, client=None, strip_audio=True):
+        captured["stage4_strip_audio"] = strip_audio
+        return object()
+
+    monkeypatch.setattr(pipeline_automation, "run_segment_prep", fake_run_segment_prep)
+    monkeypatch.setattr(pipeline_automation, "write_segment_prep_artifacts", lambda *args, **kwargs: None)
+
+    async def fake_run_agent_b_all_cuts_parallel(*args, **kwargs):
+        return object()
+
+    monkeypatch.setattr(pipeline_automation, "run_agent_b_all_cuts_parallel", fake_run_agent_b_all_cuts_parallel)
+    monkeypatch.setattr(pipeline_automation, "write_agent_b_artifacts", lambda *args, **kwargs: None)
+    monkeypatch.setattr(pipeline_automation, "run_agent_c", lambda *args, **kwargs: object())
+    monkeypatch.setattr(pipeline_automation, "write_agent_c_artifacts", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        pipeline_automation,
+        "generate_pipeline_report",
+        lambda run_dir: run_dir / "pipeline_report.html",
+    )
+
+    result = pipeline_automation.run_pipeline_for_video(
+        video_path,
+        runs_dir=runs_dir,
+        run_id="with_audio",
+        preserve_audio=True,
+    )
+
+    assert result.status == "completed"
+    assert captured == {
+        "stage2_strip_audio": False,
+        "stage4_strip_audio": False,
+    }
 
 
 def test_run_pipeline_for_video_records_failure_and_returns_failed_result(tmp_path: Path, monkeypatch):

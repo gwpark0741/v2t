@@ -146,6 +146,7 @@ def run_preprocessing(
     min_content_val: float = 15.0,
     client: Optional[genai.Client] = None,
     ffmpeg_bin: str = "ffmpeg",
+    strip_audio: bool = True,
 ) -> PreprocessingResult:
     """전처리 엔트리포인트입니다.
 
@@ -162,6 +163,7 @@ def run_preprocessing(
         local=local,
         client=client,
         ffmpeg_bin=ffmpeg_bin,
+        strip_audio=strip_audio,
     )
     return PreprocessingResult(
         video_metadata=local.video_metadata,
@@ -204,12 +206,17 @@ def prepare_full_video_asset(
     *,
     client: Optional[genai.Client] = None,
     ffmpeg_bin: str = "ffmpeg",
+    strip_audio: bool = True,
 ) -> FullVideoAssetResult:
     """전체 영상을 업로드하고 canonical Stage 02 결과를 반환합니다."""
     runtime_client = client or create_gemini_client()
     video_path = Path(local.video_path)
-    with temporary_silent_video(video_path, ffmpeg_bin=ffmpeg_bin) as silent_video_path:
-        uploaded_file = upload_video_file(runtime_client, silent_video_path)
+    if strip_audio:
+        with temporary_silent_video(video_path, ffmpeg_bin=ffmpeg_bin) as silent_video_path:
+            uploaded_file = upload_video_file(runtime_client, silent_video_path)
+            uploaded_file = wait_for_uploaded_file_active(runtime_client, uploaded_file)
+    else:
+        uploaded_file = upload_video_file(runtime_client, video_path)
         uploaded_file = wait_for_uploaded_file_active(runtime_client, uploaded_file)
     video_url = get_uploaded_video_url(uploaded_file)
     gemini_file_name = get_uploaded_file_name(uploaded_file)

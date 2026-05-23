@@ -10,17 +10,38 @@
 .env
 .env.*
 *.env
+!.env.example
+!**/.env.example
 
 # python cache
 __pycache__/
 *.pyc
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
 
 # local prototype runtime artifacts
 prototype/.venv/
 prototype/.pytest_cache/
+prototype/.uv-cache/
 prototype/reports/
 prototype/runs/
+prototype/dist/
+prototype/exports/
+prototype/share_exports/
+context.md/
+
+# local markdown drafts / review notes kept out of GitHub
+paper_draft.md
+pipeline_revision_spec.md
+prototype/pipeline_revision_spec.md
+prototype/surface_merge_issue_context.md
+prototype/IMPLEMENTATION_LOG.md
+prototype/REVIEW_DIALOGUE_LOG.md
+prototype/TEST_REPORT.md
+prototype/implementation_logs/
+prototype/reviewer_developer_log/
+prototype/test_reports/
 
 # local planning / experiment materials kept out of GitHub
 .vscode/
@@ -36,3 +57,6 @@ experiments/results/
 
 # optional local vendor cache
 .vendor/
+build/
+dist/
+*.egg-info/

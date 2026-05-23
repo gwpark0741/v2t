@@ -29,9 +29,10 @@ def _build_ffmpeg_command(
     start_time: float,
     end_time: float,
     output_path: Path,
+    strip_audio: bool = True,
 ) -> list[str]:
     duration = end_time - start_time
-    return [
+    command = [
         ffmpeg_bin,
         "-y",
         "-ss",
@@ -46,9 +47,13 @@ def _build_ffmpeg_command(
         "veryfast",
         "-crf",
         "18",
-        "-an",
-        str(output_path),
     ]
+    if strip_audio:
+        command.append("-an")
+    else:
+        command.extend(["-c:a", "aac", "-b:a", "128k"])
+    command.append(str(output_path))
+    return command
 
 
 def resolve_ffmpeg_bin(ffmpeg_bin: str = "ffmpeg") -> str:
@@ -61,6 +66,7 @@ def run_segment_prep(
     ffmpeg_bin: str = "ffmpeg",
     clips_dir: Path,
     client: Optional[genai.Client] = None,
+    strip_audio: bool = True,
 ) -> SegmentPrepResult:
     """Create and upload cut-level clips for downstream Agent B."""
     source_video_path = Path(full_video_asset.local.video_path)
@@ -81,6 +87,7 @@ def run_segment_prep(
             start_time=cut.start_time,
             end_time=cut.end_time,
             output_path=clip_output_path,
+            strip_audio=strip_audio,
         )
         try:
             subprocess.run(

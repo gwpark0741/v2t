@@ -242,6 +242,50 @@ def test_prepare_full_video_asset_uploads_and_returns_url_and_mime(tmp_path: Pat
     assert result.upload_timestamp_utc.endswith("Z")
 
 
+def test_prepare_full_video_asset_preserves_audio_by_uploading_original_path(tmp_path: Path):
+    video_path = tmp_path / "synthetic_asset_with_audio.mp4"
+    video_path.write_bytes(b"video-with-audio")
+    local = LocalPreprocessingResult(
+        video_metadata=VideoMetadata(
+            video_path=str(video_path),
+            fps=10.0,
+            frame_count=45,
+            duration_seconds=4.5,
+            width=96,
+            height=64,
+        ),
+        cuts=[Cut(id="CUT_001", start_time=0.0, end_time=4.5)],
+        video_path=str(video_path),
+        video_mime_type="video/mp4",
+    )
+    client = Mock()
+    uploaded_file = SimpleNamespace(
+        name="files/preprocessing_asset_with_audio",
+        uri="gs://bucket/preprocessing_asset_with_audio.mp4",
+        state=genai_types.FileState.ACTIVE,
+    )
+    uploaded_paths: list[Path] = []
+
+    def fake_upload(runtime_client, path: Path):
+        assert runtime_client is client
+        uploaded_paths.append(Path(path))
+        return uploaded_file
+
+    with patch("v2t_prototype.preprocessing.upload_video_file", side_effect=fake_upload), patch(
+        "v2t_prototype.preprocessing.wait_for_uploaded_file_active", return_value=uploaded_file
+    ) as wait_mock, patch("v2t_prototype.ffmpeg_utils.subprocess.run") as ffmpeg_run_mock:
+        result = prepare_full_video_asset(
+            local=local,
+            client=client,
+            strip_audio=False,
+        )
+
+    assert uploaded_paths == [video_path]
+    ffmpeg_run_mock.assert_not_called()
+    wait_mock.assert_called_once_with(client, uploaded_file)
+    assert result.video_url == "gs://bucket/preprocessing_asset_with_audio.mp4"
+
+
 def test_collect_local_preprocessing_warnings_reports_cut_gap():
     result = LocalPreprocessingResult(
         video_metadata=VideoMetadata(

@@ -130,6 +130,44 @@ def test_run_segment_prep_uses_authoritative_cut_interval(tmp_path: Path, monkey
     assert "-c:a" not in recorded_commands[0]
 
 
+def test_run_segment_prep_preserves_audio_when_requested(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    asset = _make_full_asset(
+        tmp_path,
+        cuts=[Cut(id="CUT_001", start_time=1.25, end_time=3.75)],
+    )
+    clips_dir = tmp_path / "clips"
+    recorded_commands: list[list[str]] = []
+
+    def fake_run(cmd, check, capture_output, text):
+        recorded_commands.append(cmd)
+        Path(cmd[-1]).write_bytes(b"clip")
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr("v2t_prototype.segment_prep.subprocess.run", fake_run)
+    monkeypatch.setattr(
+        "v2t_prototype.segment_prep.upload_video_file",
+        lambda client, path: _DummyUploaded("clip://url", "files/clip"),
+    )
+    monkeypatch.setattr(
+        "v2t_prototype.segment_prep.wait_for_uploaded_file_active",
+        lambda client, uploaded: uploaded,
+    )
+    monkeypatch.setattr(
+        "v2t_prototype.segment_prep.get_uploaded_video_url",
+        lambda uploaded: uploaded.uri,
+    )
+    monkeypatch.setattr(
+        "v2t_prototype.segment_prep.get_uploaded_file_name",
+        lambda uploaded: uploaded.name,
+    )
+
+    run_segment_prep(asset, clips_dir=clips_dir, client=object(), strip_audio=False)
+
+    assert len(recorded_commands) == 1
+    assert "-an" not in recorded_commands[0]
+    assert recorded_commands[0][-5:-1] == ["-c:a", "aac", "-b:a", "128k"]
+
+
 def test_run_segment_prep_records_skipped_cut_and_warning(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     asset = _make_full_asset(
         tmp_path,

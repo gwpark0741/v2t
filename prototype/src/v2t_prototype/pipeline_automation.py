@@ -166,6 +166,7 @@ def run_pipeline_for_video(
     max_agent_b_concurrency: int = 5,
     max_agent_b_retries: int = 2,
     stop_on_error: bool = False,
+    preserve_audio: bool = False,
 ) -> PipelineAutomationResult:
     resolved_video_path = video_path.expanduser().resolve()
     actual_run_id = run_id or generate_run_id(resolved_video_path)
@@ -214,6 +215,7 @@ def run_pipeline_for_video(
             local,
             client=runtime_client,
             ffmpeg_bin=ffmpeg_bin,
+            strip_audio=not preserve_audio,
         )
         write_full_video_asset_artifacts(
             full_video_asset,
@@ -245,6 +247,7 @@ def run_pipeline_for_video(
             ffmpeg_bin=ffmpeg_bin,
             clips_dir=run_dir / SEGMENT_PREP_STAGE_DIR / "clips",
             client=runtime_client,
+            strip_audio=not preserve_audio,
         )
         write_segment_prep_artifacts(
             segment_prep,
@@ -350,6 +353,7 @@ def run_pipeline_for_inputs(
     max_agent_b_concurrency: int = 5,
     max_agent_b_retries: int = 2,
     stop_on_error: bool = False,
+    preserve_audio: bool = False,
 ) -> list[PipelineAutomationResult]:
     discovered_paths = discover_video_paths(inputs, recursive=recursive)
     if max_video_concurrency < 1:
@@ -376,6 +380,7 @@ def run_pipeline_for_inputs(
             max_agent_b_concurrency=max_agent_b_concurrency,
             max_agent_b_retries=max_agent_b_retries,
             stop_on_error=stop_on_error,
+            preserve_audio=preserve_audio,
         )
 
     if stop_on_error or max_video_concurrency == 1 or len(discovered_paths) <= 1:
@@ -504,6 +509,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         action="store_true",
         help="Stop immediately when one video fails instead of continuing with the remaining inputs.",
     )
+    parser.add_argument(
+        "--preserve-audio",
+        action="store_true",
+        help="Upload the original full video and cut clips with audio instead of stripping audio.",
+    )
     args = parser.parse_args(argv)
 
     results = run_pipeline_for_inputs(
@@ -528,6 +538,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         max_agent_b_concurrency=args.max_agent_b_concurrency,
         max_agent_b_retries=args.max_agent_b_retries,
         stop_on_error=args.stop_on_error,
+        preserve_audio=args.preserve_audio,
     )
     for result in results:
         if result.status == "completed":
