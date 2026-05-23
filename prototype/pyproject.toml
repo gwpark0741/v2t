@@ -5,6 +5,8 @@ description = "Phase 0 schema and validation foundation for the v4 video-to-soun
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "google-genai>=1.0,<2",
+    "imageio-ffmpeg>=0.6.0",
     "pydantic>=2.6,<3",
     "pytest>=8.0",
     "scenedetect[opencv]>=0.6.7.1",
@@ -18,3 +20,8 @@ test = [
 [build-system]
 requires = ["hatchling>=1.11.0"]
 build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/v2t_prototype"]
+dev-mode-dirs = ["src"]
+artifacts = ["src/v2t_prototype/prompts/*.md"]

@@ -1,15 +1,25 @@
 from __future__ import annotations
 
-from typing import Literal, List, Optional, Union, Dict, Any
+from pathlib import Path
+from typing import Any, Dict, Generic, List, Literal, Optional, TypeVar, Union
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_serializer, model_validator
 
 
-EntityAudibility = Literal["audible", "likely_audible", "visual_only", "inactive"]
-InteractionType = Literal["hard_effect", "foley", "background", "electronic"]
+InteractionType = Literal["sfx", "ambience"]
 TrackType = Literal["sfx", "ambience"]
-DistanceProfile = Literal["near", "mid", "far"]
 WarningSeverity = Literal["error", "warning", "info"]
+StageName = Literal[
+    "stage_01_local_preprocessing",
+    "stage_02_full_video_asset",
+    "stage_03_agent_a",
+    "stage_04_segment_prep",
+    "stage_05_agent_b",
+    "stage_06_agent_c",
+    "stage_07_final",
+]
+StageExecutionStatus = Literal["pending", "running", "completed", "failed", "skipped"]
+T = TypeVar("T")
 
 
 class Interval(BaseModel):
@@ -59,6 +69,8 @@ class PreprocessingResult(BaseModel):
 
     video_metadata: VideoMetadata
     cuts: List[Cut]
+    video_url: str = Field(min_length=1)
+    video_mime_type: str = Field(min_length=1)
 
     model_config = ConfigDict(extra="forbid")
 
@@ -66,6 +78,150 @@ class PreprocessingResult(BaseModel):
     def non_empty_cuts(cls, value: List[Cut]) -> List[Cut]:
         if not value:
             raise ValueError("PreprocessingResult must contain at least one cut")
+        return value
+
+
+class LocalPreprocessingResult(BaseModel):
+    """Stage 01 출력 계약: 로컬 분석 결과만 포함합니다."""
+
+    video_metadata: VideoMetadata
+    cuts: List[Cut]
+    video_path: str
+    video_mime_type: str = Field(min_length=1)
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("cuts")
+    def non_empty_cuts(cls, value: List[Cut]) -> List[Cut]:
+        if not value:
+            raise ValueError("LocalPreprocessingResult must contain at least one cut")
+        return value
+
+
+class FullVideoAssetResult(BaseModel):
+    """Stage 02 출력 계약: 업로드된 전체 영상 자산 정보."""
+
+    local: LocalPreprocessingResult
+    video_url: str = Field(min_length=1)
+    gemini_file_name: str = Field(min_length=1)
+    upload_timestamp_utc: str = Field(min_length=1)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class SegmentClip(BaseModel):
+    cut_id: str
+    local_clip_path: str = Field(min_length=1)
+    clip_video_url: str = Field(min_length=1)
+    clip_gemini_file_name: str = Field(min_length=1)
+    clip_video_mime_type: str = Field(min_length=1)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class SkippedCut(BaseModel):
+    cut_id: str
+    reason: str = Field(min_length=1)
+    error_detail: str = Field(min_length=1)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class SegmentPrepResult(BaseModel):
+    clips: List[SegmentClip]
+    skipped_cuts: List[SkippedCut] = Field(default_factory=list)
+    warnings: List["WarningItem"] = Field(default_factory=list)
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("clips")
+    def non_empty_clips(cls, value: List[SegmentClip]) -> List[SegmentClip]:
+        if not value:
+            raise ValueError("No clips were successfully prepared")
+        return value
+
+
+class StageStatus(BaseModel):
+    stage: StageName
+    stage_dir: str
+    status: StageExecutionStatus
+    started_at: str | None = None
+    completed_at: str | None = None
+    error_message: str | None = None
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class RunManifest(BaseModel):
+    run_id: str
+    video_path: str
+    created_at_utc: str
+    entry_stage: str | None = None
+    stages: List[StageStatus]
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class StageWarningsRecord(BaseModel):
+    stage: StageName
+    generated_at_utc: str
+    warnings: List["WarningItem"]
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class StageErrorRecord(BaseModel):
+    stage: StageName
+    failed_at_utc: str
+    attempt_count: int = Field(ge=1)
+    retryable: bool
+    error_class: str
+    message: str
+    context: Dict[str, Any]
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class TokenUsage(BaseModel):
+    prompt_token_count: int = Field(default=0, ge=0)
+    candidates_token_count: int = Field(default=0, ge=0)
+    total_token_count: int = Field(default=0, ge=0)
+    cached_content_token_count: int = Field(default=0, ge=0)
+    thoughts_token_count: int = Field(default=0, ge=0)
+    tool_use_prompt_token_count: int = Field(default=0, ge=0)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class LoadedStageBundle(BaseModel, Generic[T]):
+    stage: StageName
+    status: StageExecutionStatus
+    stage_dir: Path
+    output_path: Path | None = None
+    warnings_path: Path | None = None
+    error_path: Path | None = None
+    report_path: Path | None = None
+    output: T | None = None
+    warnings: List["WarningItem"] = Field(default_factory=list)
+    error: StageErrorRecord | None = None
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class AgentARequest(BaseModel):
+    """Agent A 호출에 전달되는 최소 입력 계약."""
+
+    video_url: str = Field(min_length=1)
+    video_mime_type: str = Field(min_length=1)
+    video_metadata: VideoMetadata
+    cuts: List[Cut]
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("cuts")
+    def non_empty_cuts(cls, value: List[Cut]) -> List[Cut]:
+        if not value:
+            raise ValueError("AgentARequest must contain at least one cut")
         return value
 
 
@@ -90,43 +246,70 @@ class ContinuousEvent(BaseModel):
         return self
 
 
-class Character(BaseModel):
+class Entity_Child(BaseModel):
+    id: str
+    label: str
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class Entity(BaseModel):
+    id: str
+    label: str
+    children: List["Entity_Child"] = Field(default_factory=list)
+
+    model_config = ConfigDict(extra="forbid")
+
+    @model_serializer(mode="wrap")
+    def serialize_model(self, serializer):
+        payload = serializer(self)
+        if not self.children:
+            payload.pop("children", None)
+        return payload
+
+
+class Ambience(BaseModel):
+    id: str
+    label: str
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class Unknown(BaseModel):
     id: str
     label: str
     visual_description: str
-    entry_exit_intervals: List[Interval]
-    audibility: EntityAudibility
 
     model_config = ConfigDict(extra="forbid")
 
 
-class KeyObject(BaseModel):
-    id: str
-    label: str
-    visual_description: str
-    material: str
-    surface: str
-    has_mechanism: bool
-    audibility: EntityAudibility
+class EntityRegistry(BaseModel):
+    entities: List[Entity] = Field(default_factory=list)
+    ambience: List[Ambience] = Field(default_factory=list)
+    unknowns: List[Unknown] = Field(default_factory=list)
 
     model_config = ConfigDict(extra="forbid")
 
 
-class AmbienceSource(BaseModel):
-    id: str
-    label: str
-    space_description: str
-    distance_profile: DistanceProfile
-    tonal_quality: str
-
-    model_config = ConfigDict(extra="forbid")
-
-
-class CutEnrichment(BaseModel):
+class CutSourceMapping(BaseModel):
     cut_id: str
-    camera_angle: str
-    transition_type: str
-    camera_notes: str
+    sfx_source_ids: List[str] = Field(default_factory=list)
+    ambience_source_ids: List[str] = Field(default_factory=list)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class CutMapping(BaseModel):
+    mappings: List[CutSourceMapping] = Field(default_factory=list)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class AgentAResponse(BaseModel):
+    """Agent A 출력 계약: 전역 entity registry."""
+
+    entity_registry: EntityRegistry
+    cut_mapping: CutMapping = Field(default_factory=CutMapping)
 
     model_config = ConfigDict(extra="forbid")
 
@@ -146,10 +329,9 @@ class Action(BaseModel):
     unknown_resolution: Optional[UnknownResolution] = None
     interaction_type: InteractionType
     sound_description: str
-    surface_context: Optional[str]
     observed_visual_description: str
     event: Union[OnsetEvent, ContinuousEvent]
-    boundary_flag: bool
+    boundary_flag: bool = False
 
     model_config = ConfigDict(extra="forbid")
 
@@ -160,13 +342,57 @@ class Action(BaseModel):
         return self
 
 
+class AgentBCutInput(BaseModel):
+    cut_id: str
+    cut_start_time: float = Field(ge=0.0)
+    cut_end_time: float = Field(ge=0.0)
+    clip_video_url: str = Field(min_length=1)
+    clip_video_mime_type: str = Field(min_length=1)
+    entity_registry: EntityRegistry
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class AgentBCutOutput(BaseModel):
+    cut_id: str
+    raw_response_text: str
+    actions: List[Action]
+    validation_issues: List[str]
+    model: str = Field(min_length=1)
+    latency_ms: float = Field(default=0.0, ge=0.0)
+    usage: TokenUsage = Field(default_factory=TokenUsage)
+    estimated_cost_usd: float = Field(default=0.0, ge=0.0)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class AgentBAllCutsResult(BaseModel):
+    cut_outputs: List[AgentBCutOutput]
+    skipped_cut_ids: List[str] = Field(default_factory=list)
+    failed_cut_ids: List[str] = Field(default_factory=list)
+    total_actions: int = Field(ge=0)
+    unresolved_count: int = Field(ge=0)
+    reassigned_count: int = Field(ge=0)
+    aggregate_usage: TokenUsage = Field(default_factory=TokenUsage)
+    total_model_latency_ms: float = Field(default=0.0, ge=0.0)
+    estimated_total_cost_usd: float = Field(default=0.0, ge=0.0)
+    warnings: List["WarningItem"] = Field(default_factory=list)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class AgentBResponse(BaseModel):
+    actions: List[Action]
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class Track(BaseModel):
+    track_number: int = Field(ge=1)
     track_id: str
     track_type: TrackType
     source_entity_id: str
-    interaction_type: InteractionType
     sound_description: str
-    surface_context_summary: Optional[str]
     events: List[Union[OnsetEvent, ContinuousEvent]]
 
     model_config = ConfigDict(extra="forbid")
@@ -209,3 +435,35 @@ class PipelineResult(BaseModel):
     warnings: List[WarningItem]
 
     model_config = ConfigDict(extra="forbid")
+
+
+class TrackGroupResult(BaseModel):
+    action_ids: List[str]
+    reason: str
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class TrackGroupJudgment(BaseModel):
+    group_key: str
+    input_action_ids: List[str]
+    output_groups: List[TrackGroupResult]
+    model: str | None
+    source: Literal["single_action", "deterministic", "llm", "llm_error"]
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class AgentCResult(BaseModel):
+    pipeline_result: PipelineResult
+    track_group_judgments: List[TrackGroupJudgment] = Field(default_factory=list)
+    merge_group_count: int = Field(ge=0)
+    llm_call_count: int = Field(ge=0)
+    total_llm_latency_ms: float = Field(ge=0.0)
+    per_call_llm_latency_ms: List[float] = Field(default_factory=list)
+    llm_usage: TokenUsage = Field(default_factory=TokenUsage)
+    estimated_llm_cost_usd: float = Field(default=0.0, ge=0.0)
+
+    model_config = ConfigDict(extra="forbid")
+
+Entity.model_rebuild()

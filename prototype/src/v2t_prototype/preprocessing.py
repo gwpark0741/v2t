@@ -1,12 +1,24 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Optional
+from mimetypes import guess_type
+from datetime import datetime, timezone
 
 import cv2
+from google import genai
 from scenedetect import SceneManager, open_video
 from scenedetect.detectors import AdaptiveDetector
 
-from .models import Cut, PreprocessingResult, VideoMetadata
+from .ffmpeg_utils import temporary_silent_video
+from .gemini_client import (
+    create_gemini_client,
+    get_uploaded_file_name,
+    get_uploaded_video_url,
+    upload_video_file,
+    wait_for_uploaded_file_active,
+)
+from .models import Cut, FullVideoAssetResult, LocalPreprocessingResult, PreprocessingResult, VideoMetadata, WarningItem
 
 
 def extract_video_metadata(video_path: Path) -> VideoMetadata:
@@ -132,14 +144,45 @@ def run_preprocessing(
     min_scene_len: int = 30,
     window_width: int = 2,
     min_content_val: float = 15.0,
+    client: Optional[genai.Client] = None,
+    ffmpeg_bin: str = "ffmpeg",
+    strip_audio: bool = True,
 ) -> PreprocessingResult:
     """전처리 엔트리포인트입니다.
 
-    반환 계약은 단순하게 유지합니다:
-    1) 영상 물리 메타데이터 추출
-    2) AdaptiveDetector 기반 컷 경계 확정
-    3) 두 결과를 `PreprocessingResult`로 묶어 반환
+    `run_local_preprocessing` 결과를 재사용하고, 업로드 경로만 추가 수행합니다.
     """
+    local = run_local_preprocessing(
+        video_path=video_path,
+        adaptive_threshold=adaptive_threshold,
+        min_scene_len=min_scene_len,
+        window_width=window_width,
+        min_content_val=min_content_val,
+    )
+    full_video_asset = prepare_full_video_asset(
+        local=local,
+        client=client,
+        ffmpeg_bin=ffmpeg_bin,
+        strip_audio=strip_audio,
+    )
+    return PreprocessingResult(
+        video_metadata=local.video_metadata,
+        cuts=local.cuts,
+        video_url=full_video_asset.video_url,
+        video_mime_type=local.video_mime_type,
+    )
+
+
+def run_local_preprocessing(
+    video_path: Path,
+    *,
+    adaptive_threshold: float = 4.0,
+    min_scene_len: int = 30,
+    window_width: int = 2,
+    min_content_val: float = 15.0,
+) -> LocalPreprocessingResult:
+    """로컬 전처리(메타데이터 + 컷 검출)만 수행하고 결과를 반환합니다."""
+    resolved_path = video_path.expanduser().resolve()
     metadata = extract_video_metadata(video_path)
     cuts = _detect_cuts_with_metadata(
         video_path=video_path,
@@ -149,4 +192,112 @@ def run_preprocessing(
         window_width=window_width,
         min_content_val=min_content_val,
     )
-    return PreprocessingResult(video_metadata=metadata, cuts=cuts)
+    mime_type, _ = guess_type(str(resolved_path))
+    return LocalPreprocessingResult(
+        video_metadata=metadata,
+        cuts=cuts,
+        video_path=str(resolved_path),
+        video_mime_type=mime_type or "application/octet-stream",
+    )
+
+
+def prepare_full_video_asset(
+    local: LocalPreprocessingResult,
+    *,
+    client: Optional[genai.Client] = None,
+    ffmpeg_bin: str = "ffmpeg",
+    strip_audio: bool = True,
+) -> FullVideoAssetResult:
+    """전체 영상을 업로드하고 canonical Stage 02 결과를 반환합니다."""
+    runtime_client = client or create_gemini_client()
+    video_path = Path(local.video_path)
+    if strip_audio:
+        with temporary_silent_video(video_path, ffmpeg_bin=ffmpeg_bin) as silent_video_path:
+            uploaded_file = upload_video_file(runtime_client, silent_video_path)
+            uploaded_file = wait_for_uploaded_file_active(runtime_client, uploaded_file)
+    else:
+        uploaded_file = upload_video_file(runtime_client, video_path)
+        uploaded_file = wait_for_uploaded_file_active(runtime_client, uploaded_file)
+    video_url = get_uploaded_video_url(uploaded_file)
+    gemini_file_name = get_uploaded_file_name(uploaded_file)
+    upload_timestamp_utc = (
+        datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    )
+    return FullVideoAssetResult(
+        local=local,
+        video_url=video_url,
+        gemini_file_name=gemini_file_name,
+        upload_timestamp_utc=upload_timestamp_utc,
+    )
+
+
+def collect_local_preprocessing_warnings(
+    result: LocalPreprocessingResult,
+    *,
+    tolerance_seconds: float = 0.01,
+) -> list[WarningItem]:
+    """컷 무결성 이상 신호를 warning으로 수집합니다."""
+    warnings: list[WarningItem] = []
+    cuts = result.cuts
+    duration = result.video_metadata.duration_seconds
+
+    if not cuts:
+        return warnings
+
+    if cuts[0].start_time > tolerance_seconds:
+        warnings.append(
+            WarningItem(
+                code="CUT_STARTS_AFTER_ZERO",
+                severity="warning",
+                message="The first cut starts after 0.0 seconds.",
+                context={
+                    "cut_id": cuts[0].id,
+                    "first_cut_start_time": cuts[0].start_time,
+                },
+            )
+        )
+
+    if abs(cuts[-1].end_time - duration) > tolerance_seconds:
+        warnings.append(
+            WarningItem(
+                code="CUT_ENDS_BEFORE_VIDEO_DURATION",
+                severity="warning",
+                message="The last cut does not align with the full video duration.",
+                context={
+                    "cut_id": cuts[-1].id,
+                    "last_cut_end_time": cuts[-1].end_time,
+                    "video_duration_seconds": duration,
+                },
+            )
+        )
+
+    for previous, current in zip(cuts, cuts[1:]):
+        gap = current.start_time - previous.end_time
+        if gap > tolerance_seconds:
+            warnings.append(
+                WarningItem(
+                    code="CUT_GAP_DETECTED",
+                    severity="warning",
+                    message="A gap was detected between adjacent cuts.",
+                    context={
+                        "previous_cut_id": previous.id,
+                        "next_cut_id": current.id,
+                        "gap_seconds": round(gap, 6),
+                    },
+                )
+            )
+        elif gap < -tolerance_seconds:
+            warnings.append(
+                WarningItem(
+                    code="CUT_OVERLAP_DETECTED",
+                    severity="warning",
+                    message="An overlap was detected between adjacent cuts.",
+                    context={
+                        "previous_cut_id": previous.id,
+                        "next_cut_id": current.id,
+                        "overlap_seconds": round(abs(gap), 6),
+                    },
+                )
+            )
+
+    return warnings

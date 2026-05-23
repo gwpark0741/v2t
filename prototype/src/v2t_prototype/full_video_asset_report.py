@@ -4,48 +4,18 @@ from html import escape
 from pathlib import Path
 from typing import Sequence
 
-from .models import LocalPreprocessingResult, PreprocessingResult, WarningItem
+from .models import FullVideoAssetResult, WarningItem
 
 
-def _format_seconds(value: float) -> str:
-    return f"{value:.3f}s"
-
-
-def build_preprocessing_report_html(
-    result: PreprocessingResult | LocalPreprocessingResult,
+def build_full_video_asset_report_html(
+    result: FullVideoAssetResult,
     *,
     title: str | None = None,
     warnings: Sequence[WarningItem] | None = None,
 ) -> str:
-    """전처리 결과를 단일 정적 HTML 문자열로 렌더링합니다."""
-    report_title = title or "Preprocessing Report"
-    metadata = result.video_metadata
-    cut_count = len(result.cuts)
-    duration = metadata.duration_seconds
+    report_title = title or "Full Video Asset Report"
+    metadata = result.local.video_metadata
     report_warnings = list(warnings or [])
-
-    timeline_segments: list[str] = []
-    cut_rows: list[str] = []
-    for cut in result.cuts:
-        cut_duration = cut.end_time - cut.start_time
-        start_percent = 0.0 if duration <= 0 else (cut.start_time / duration) * 100.0
-        width_percent = 0.0 if duration <= 0 else (cut_duration / duration) * 100.0
-        timeline_segments.append(
-            (
-                "<div class='segment' "
-                f"style='left:{start_percent:.4f}%;width:{width_percent:.4f}%;' "
-                f"title='{escape(cut.id)}: {_format_seconds(cut.start_time)} - {_format_seconds(cut.end_time)}'></div>"
-            )
-        )
-        cut_rows.append(
-            "<tr>"
-            f"<td>{escape(cut.id)}</td>"
-            f"<td>{_format_seconds(cut.start_time)}</td>"
-            f"<td>{_format_seconds(cut.end_time)}</td>"
-            f"<td>{_format_seconds(cut_duration)}</td>"
-            "</tr>"
-        )
-
     warning_rows = "".join(
         (
             "<tr>"
@@ -73,7 +43,6 @@ def build_preprocessing_report_html(
     </div>
 """
 
-    # JavaScript 없이도 컷 비율을 직관적으로 확인할 수 있도록 절대 배치 막대를 사용합니다.
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -87,7 +56,7 @@ def build_preprocessing_report_html(
       --text: #1c2333;
       --muted: #5e6575;
       --line: #d8dcea;
-      --segment: #2f7a4a;
+      --ok: #216b44;
     }}
     body {{
       margin: 0;
@@ -107,33 +76,24 @@ def build_preprocessing_report_html(
       padding: 16px;
       margin-bottom: 12px;
     }}
-    h1, h2 {{
-      margin: 0 0 12px 0;
+    .pill {{
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: #e7f4ec;
+      color: var(--ok);
+      font-size: 13px;
+      font-weight: 600;
     }}
     .kv {{
       display: grid;
-      grid-template-columns: 200px 1fr;
+      grid-template-columns: 220px 1fr;
       row-gap: 8px;
       column-gap: 10px;
       font-size: 14px;
     }}
-    .kv .label {{
+    .label {{
       color: var(--muted);
-    }}
-    .timeline-track {{
-      position: relative;
-      height: 26px;
-      border: 1px solid var(--line);
-      border-radius: 6px;
-      background: #eef1f7;
-      overflow: hidden;
-    }}
-    .segment {{
-      position: absolute;
-      top: 0;
-      bottom: 0;
-      background: var(--segment);
-      border-right: 1px solid #ffffff66;
     }}
     pre {{
       margin: 0;
@@ -162,47 +122,40 @@ def build_preprocessing_report_html(
   <div class="wrap">
     <div class="card">
       <h1>{escape(report_title)}</h1>
+      <div class="pill">ACTIVE</div>
+      <div class="kv" style="margin-top: 12px;">
+        <div class="label">Video Path</div><div>{escape(result.local.video_path)}</div>
+        <div class="label">Video URL</div><div>{escape(result.video_url)}</div>
+        <div class="label">Gemini File Name</div><div>{escape(result.gemini_file_name)}</div>
+        <div class="label">Upload Timestamp (UTC)</div><div>{escape(result.upload_timestamp_utc)}</div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Stage 01 Summary</h2>
       <div class="kv">
-        <div class="label">Video Path</div><div>{escape(metadata.video_path)}</div>
         <div class="label">FPS</div><div>{metadata.fps}</div>
         <div class="label">Frame Count</div><div>{metadata.frame_count}</div>
-        <div class="label">Duration</div><div>{_format_seconds(metadata.duration_seconds)}</div>
+        <div class="label">Duration</div><div>{metadata.duration_seconds:.3f}s</div>
         <div class="label">Resolution</div><div>{metadata.width} x {metadata.height}</div>
-        <div class="label">MIME Type</div><div>{escape(result.video_mime_type)}</div>
-        <div class="label">Cut Count</div><div>{cut_count}</div>
+        <div class="label">Cut Count</div><div>{len(result.local.cuts)}</div>
+        <div class="label">MIME Type</div><div>{escape(result.local.video_mime_type)}</div>
       </div>
     </div>
     {warning_section}
-    <div class="card">
-      <h2>Timeline</h2>
-      <div class="timeline-track">{''.join(timeline_segments)}</div>
-    </div>
-    <div class="card">
-      <h2>Cuts</h2>
-      <table>
-        <thead>
-          <tr><th>ID</th><th>Start</th><th>End</th><th>Duration</th></tr>
-        </thead>
-        <tbody>
-          {''.join(cut_rows)}
-        </tbody>
-      </table>
-    </div>
   </div>
 </body>
 </html>
 """
 
 
-def write_preprocessing_report(
-    result: PreprocessingResult | LocalPreprocessingResult,
+def write_full_video_asset_report(
+    result: FullVideoAssetResult,
     output_path: Path,
     *,
     title: str | None = None,
     warnings: Sequence[WarningItem] | None = None,
 ) -> Path:
-    """전처리 HTML 리포트를 파일로 저장하고 저장 경로를 반환합니다."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    html = build_preprocessing_report_html(result, title=title, warnings=warnings)
+    html = build_full_video_asset_report_html(result, title=title, warnings=warnings)
     output_path.write_text(html, encoding="utf-8")
     return output_path

@@ -3,21 +3,22 @@ from __future__ import annotations
 import hashlib
 import re
 
-from typing import Callable, Dict, List, Optional
+from collections import defaultdict
+from typing import List, Optional
 
-from .merge_rules import canonical_should_merge
 from .models import (
     Action,
     PipelineResult,
     Track,
+    TrackGroupResult,
     TrackManifest,
-    TrackType,
     UnresolvedUnknown,
+    WarningItem,
 )
+from .track_judge import TrackJudge
 
 
 def _is_unresolved_unknown(action: Action) -> bool:
-    """UNKNOWN_*이면서 UNRESOLVED로 표시된 경우를 검출하여 unresolved_unknowns로 분리합니다."""
     return (
         action.primary_source_id.startswith("UNKNOWN_")
         and action.unknown_resolution is not None
@@ -26,9 +27,6 @@ def _is_unresolved_unknown(action: Action) -> bool:
 
 
 def _normalize_source_id(action: Action) -> str:
-    """
-    REASSIGN_TO_EXISTING인 경우에 suggested_entity_id로 교체하여 추후 merge 때 실제 엔티티를 참조하게 합니다.
-    """
     if (
         action.primary_source_id.startswith("UNKNOWN_")
         and action.unknown_resolution is not None
@@ -40,87 +38,149 @@ def _normalize_source_id(action: Action) -> str:
 
 
 def _resolved_action(action: Action) -> Action:
-    """
-    Action을 mutate하지 않고, 필요한 경우 normalized_id로 교체한 복사본을 반환합니다.
-    """
     normalized_id = _normalize_source_id(action)
     if normalized_id == action.primary_source_id:
         return action
     return action.model_copy(update={"primary_source_id": normalized_id})
 
 
-def _track_type_for(
-    source_id: str, source_entity_kind_by_id: Optional[Dict[str, str]]
-) -> TrackType:
-    """source_entity_kind_by_id 맵을 참조하여 ambience/sfx를 결정합니다."""
-    if source_entity_kind_by_id and source_entity_kind_by_id.get(source_id) == "AmbienceSource":
-        return "ambience"
-    return "sfx"
+def _track_type_sort_key(track_type: str) -> tuple[int, str]:
+    order = {
+        "sfx": 0,
+        "ambience": 1,
+    }
+    return (order.get(track_type, 99), track_type)
 
 
-def _longest_non_null(strings: List[str]) -> Optional[str]:
-    """가장 긴 문자열을 찾아서 대표 surface_summary로 사용합니다."""
-    if not strings:
-        return None
-    return max(strings, key=len)
-
-
-def normalize_surface_key(surface: str) -> str:
-    """surface_context_summary를 트랙 ID에 안전하게 사용할 수 있도록 정규화합니다."""
-    normalized = surface.lower().strip()
+def normalize_key(text: str, *, max_length: int | None = 40) -> str:
+    normalized = text.lower().strip()
     normalized = re.sub(r"[^a-z0-9\s]", "", normalized)
     normalized = re.sub(r"\s+", "_", normalized)
-    return normalized[:50] or "unknown_surface"
+    if max_length is not None:
+        normalized = normalized[:max_length]
+    return normalized or "group"
 
 
-def _missing_surface_key_for_group(group: List[Action]) -> str:
-    """
-    surface_context_summary가 없을 때, group 내 고정 정보(action_id, 시간 등)를 이용해 결정론적인 키를 생성합니다.
-    이 키는 해시를 사용하여 길이를 제한하되, 동일한 group이면 항상 같은 결과가 나오게 설계합니다.
-    """
-    sorted_ids = sorted(entry.action_id for entry in group)
-    event_signatures = []
-    for entry in sorted(group, key=lambda entry: entry.action_id):
-        ev = entry.event
-        if hasattr(ev, "timestamp"):
-            event_signatures.append(f"{ev.timestamp:.2f}")
-        else:
-            event_signatures.append(f"{ev.start_time:.2f}-{ev.end_time:.2f}")
-    material = "_".join(["-".join(sorted_ids), "-".join(event_signatures)])
-    digest = hashlib.sha1(material.encode("utf-8")).hexdigest()[:8]
-    return f"missing_surface_{digest}"
+def _stable_group_suffix(group_actions: list[Action]) -> str:
+    sorted_ids = sorted(action.action_id for action in group_actions)
+    material = "|".join(sorted_ids)
+    return hashlib.sha1(material.encode("utf-8")).hexdigest()[:8]
 
 
-def _surface_key_for_group(group: List[Action], surface_summary: Optional[str]) -> str:
-    """
-    surface_summary가 존재하면 정규화된 surface_key를 사용하고, 없으면 group 기반 missing_surface 키를 생성합니다.
-    """
-    if surface_summary:
-        return normalize_surface_key(surface_summary)
-    return _missing_surface_key_for_group(group)
+def _group_key(source_id: str, interaction_type: str, event_type: str) -> str:
+    return f"{source_id}__{interaction_type}__{event_type}"
 
 
-def _build_track_id(
-    source_id: str, interaction_type: str, surface_key: str
+def _group_by_normalized_description(actions: list[Action]) -> list[list[Action]]:
+    grouped: dict[str, list[Action]] = defaultdict(list)
+    ordered_keys: list[str] = []
+    for action in actions:
+        normalized = normalize_key(action.sound_description, max_length=None)
+        if normalized not in grouped:
+            ordered_keys.append(normalized)
+        grouped[normalized].append(action)
+    return [grouped[key] for key in ordered_keys]
+
+
+def _representative_actions(groups: list[list[Action]]) -> list[Action]:
+    representatives: list[Action] = []
+    for group in groups:
+        ordered = _sort_group_actions(group)
+        representatives.append(ordered[0])
+    return representatives
+
+
+def _expand_group_results(
+    representative_groups: list[list[Action]],
+    deterministic_groups_by_rep_id: dict[str, list[Action]],
+    reasons: list[str],
+) -> tuple[list[list[Action]], list[TrackGroupResult]]:
+    expanded_groups: list[list[Action]] = []
+    expanded_results: list[TrackGroupResult] = []
+    for rep_group, reason in zip(representative_groups, reasons):
+        expanded_actions: list[Action] = []
+        for representative in rep_group:
+            expanded_actions.extend(deterministic_groups_by_rep_id[representative.action_id])
+        ordered_actions = _sort_group_actions(expanded_actions)
+        expanded_groups.append(ordered_actions)
+        expanded_results.append(
+            TrackGroupResult(
+                action_ids=[action.action_id for action in ordered_actions],
+                reason=reason,
+            )
+        )
+    return expanded_groups, expanded_results
+
+
+def build_track_id(
+    source_id: str,
+    interaction_type: str,
+    event_type: str,
+    group_actions: list[Action],
+    *,
+    total_groups: int,
+    used_ids: set[str],
 ) -> str:
-    """
-    결정론적인 track_id를 생성합니다.
-    background/electronic은 surface_key를 제외하고, hard_effect/foley는 surface_key를 접미사로 사용합니다.
-    """
-    if interaction_type in {"background", "electronic"}:
-        return f"{source_id}__{interaction_type}"
-    return f"{source_id}__{interaction_type}__{surface_key}"
+    if interaction_type == "ambience":
+        return f"{source_id}__ambience"
+
+    base = f"{source_id}__{interaction_type}__{event_type}"
+    if total_groups == 1:
+        return base
+
+    rep_desc = max(group_actions, key=lambda action: len(action.sound_description))
+    desc_key = normalize_key(rep_desc.sound_description)
+    candidate = f"{base}__{desc_key}"
+    if candidate not in used_ids:
+        return candidate
+    return f"{candidate}__{_stable_group_suffix(group_actions)}"
+
+
+def _sort_group_actions(group_actions: list[Action]) -> list[Action]:
+    def _event_sort_key(action: Action) -> tuple[float, float]:
+        event = action.event
+        if hasattr(event, "timestamp"):
+            return (float(event.timestamp), float(event.timestamp))
+        return (float(event.start_time), float(event.end_time))
+
+    return sorted(group_actions, key=lambda action: (_event_sort_key(action), action.action_id))
+
+
+def _sort_tracks_for_manifest(tracks: list[Track]) -> list[Track]:
+    return sorted(
+        tracks,
+        key=lambda track: (
+            _track_type_sort_key(track.track_type),
+            track.source_entity_id,
+            track.track_id,
+        ),
+    )
 
 
 def synthesize_tracks(
     actions: List[Action],
-    surface_compatibility: Optional[Callable[[str, str], bool]] = None,
-    source_entity_kind_by_id: Optional[Dict[str, str]] = None,
+    *,
+    track_judge: Optional[TrackJudge] = None,
 ) -> PipelineResult:
-    groups: List[List[Action]] = []
-    unresolved_unknowns: List[UnresolvedUnknown] = []
+    unresolved_unknowns: list[UnresolvedUnknown] = []
+    buckets: dict[tuple[str, str, str], list[Action]] = defaultdict(list)
+    warnings: list[WarningItem] = []
 
     for action in actions:
+        if getattr(action, "interaction_type", None) == "voice":
+            warnings.append(
+                WarningItem(
+                    code="STAGE06_LEGACY_VOICE_DROPPED",
+                    severity="warning",
+                    message="Dropped a legacy voice action because Stage 06 now supports only sfx and ambience.",
+                    context={
+                        "action_id": action.action_id,
+                        "cut_id": action.cut_id,
+                        "primary_source_id": action.primary_source_id,
+                    },
+                )
+            )
+            continue
         if _is_unresolved_unknown(action):
             unresolved_unknowns.append(
                 UnresolvedUnknown(
@@ -134,45 +194,97 @@ def synthesize_tracks(
             continue
 
         resolved = _resolved_action(action)
-        matched = False
-        for group in groups:
-            representative = group[0]
-            if canonical_should_merge(representative, resolved, surface_compatibility):
-                group.append(resolved)
-                matched = True
-                break
+        buckets[(resolved.primary_source_id, resolved.interaction_type, resolved.event.type)].append(resolved)
 
-        if not matched:
-            groups.append([resolved])
+    tracks: list[Track] = []
+    used_track_ids: set[str] = set()
 
-    tracks: List[Track] = []
-    for group in groups:
-        # canonical_should_merge() 기준으로 group이 정해진 이후,
-        # 대표 sound_description과 surface_summary(있는 경우)를 정리합니다.
-        sound_choice = max(group, key=lambda entry: len(entry.sound_description))
-        surfaces = [entry.surface_context for entry in group if entry.surface_context]
-        source_id = group[0].primary_source_id
-        track_type = _track_type_for(source_id, source_entity_kind_by_id)
-        surface_summary = _longest_non_null(surfaces)
-        surface_key = _surface_key_for_group(group, surface_summary)
-        track_id = _build_track_id(source_id, group[0].interaction_type, surface_key)
+    for (source_id, interaction_type, event_type), bucket_actions in buckets.items():
+        group_key = _group_key(source_id, interaction_type, event_type)
+        if interaction_type == "ambience":
+            grouped_actions = [list(bucket_actions)]
+            grouped_results = [
+                TrackGroupResult(
+                    action_ids=[action.action_id for action in _sort_group_actions(bucket_actions)],
+                    reason="single ambience bucket",
+                )
+            ]
+        elif track_judge is not None:
+            deterministic_groups = _group_by_normalized_description(list(bucket_actions))
+            if len(deterministic_groups) == 1:
+                grouped_actions = [_sort_group_actions(deterministic_groups[0])]
+                grouped_results = [
+                    TrackGroupResult(
+                        action_ids=[action.action_id for action in grouped_actions[0]],
+                        reason="same normalized sound_description",
+                    )
+                ]
+                track_judge.record_judgment(
+                    group_key,
+                    list(bucket_actions),
+                    grouped_results,
+                    source="deterministic",
+                    model=None,
+                )
+            else:
+                rep_actions = _representative_actions(deterministic_groups)
+                decision = track_judge.judge_group_decision(
+                    rep_actions,
+                    source_id=source_id,
+                    interaction_type=interaction_type,
+                    event_type=event_type,
+                    record=False,
+                )
+                deterministic_groups_by_rep_id = {
+                    representative.action_id: _sort_group_actions(group)
+                    for representative, group in zip(rep_actions, deterministic_groups)
+                }
+                grouped_actions, grouped_results = _expand_group_results(
+                    decision.groups,
+                    deterministic_groups_by_rep_id,
+                    [group.reason for group in decision.group_results],
+                )
+                track_judge.record_judgment(
+                    group_key,
+                    list(bucket_actions),
+                    grouped_results,
+                    source=decision.source,
+                    model=decision.model,
+                )
+        else:
+            grouped_actions = [_sort_group_actions(group) for group in _group_by_normalized_description(list(bucket_actions))]
 
-        # 결정론적 track_id를 규칙대로 계산하고 surface_summary는 트랙 메타데이터로 유지합니다.
-        tracks.append(
-            Track(
-                track_id=track_id,
-                track_type=track_type,
-                source_entity_id=source_id,
-                interaction_type=group[0].interaction_type,
-                sound_description=sound_choice.sound_description,
-                surface_context_summary=surface_summary,
-                events=[entry.event for entry in group],
+        total_groups = len(grouped_actions)
+        for group_actions in grouped_actions:
+            ordered_group = _sort_group_actions(group_actions)
+            sound_choice = max(ordered_group, key=lambda action: len(action.sound_description))
+            track_id = build_track_id(
+                source_id,
+                interaction_type,
+                event_type,
+                ordered_group,
+                total_groups=total_groups,
+                used_ids=used_track_ids,
             )
-        )
+            used_track_ids.add(track_id)
+            tracks.append(
+                Track(
+                    track_number=1,
+                    track_id=track_id,
+                    track_type=interaction_type,
+                    source_entity_id=source_id,
+                    sound_description=sound_choice.sound_description,
+                    events=[action.event for action in ordered_group],
+                )
+            )
 
-    manifest = TrackManifest(tracks=tracks)
+    numbered_tracks = [
+        track.model_copy(update={"track_number": index})
+        for index, track in enumerate(_sort_tracks_for_manifest(tracks), start=1)
+    ]
+
     return PipelineResult(
-        track_manifest=manifest,
+        track_manifest=TrackManifest(tracks=numbered_tracks),
         unresolved_unknowns=unresolved_unknowns,
-        warnings=[],
+        warnings=warnings,
     )
